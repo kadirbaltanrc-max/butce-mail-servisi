@@ -1,43 +1,48 @@
 const { createClient } = require('@supabase/supabase-js');
-const nodemailer = require('nodemailer');
 const http = require('http');
 
-// Render.com üzerinden eklenecek gizli çevresel değişkenler
+// Render.com üzerinden gelen gizli değişkenler
 const SUPABASE_URL = process.env.SUPABASE_URL;
 const SUPABASE_KEY = process.env.SUPABASE_KEY;
-const GMAIL_USER = process.env.GMAIL_USER;
-const GMAIL_PASS = process.env.GMAIL_PASS;
+const RESEND_API_KEY = process.env.RESEND_API_KEY;
 
-// Sabitlenmiş Hedef Mail Adresleri (Virgül ile ayrılmış)
-const TARGET_EMAILS = "kadirbalta.nrc@gmail.com, nurcinneemir@gmail.com";
+// Hedef Mail Adresleri
+const TARGET_EMAILS = ["kadirbalta.nrc@gmail.com", "nurcinneemir@gmail.com"];
 
 // Supabase Bağlantısı
 const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
 
-// GÜNCELLENMİŞ NODEMAILER BAĞLANTISI (Render.com Zaman Aşımı Çözümü)
-const transporter = nodemailer.createTransport({
-    host: 'smtp.gmail.com',
-    port: 587, // 465 yerine bulut dostu 587 TLS portuna geçildi
-    secure: false, // 587 portu için false olmalı, STARTTLS otomatik devreye girer
-    requireTLS: true, // TLS şifrelemesini zorunlu kılar
-    auth: {
-        user: GMAIL_USER,
-        pass: GMAIL_PASS
-    },
-    tls: {
-        rejectUnauthorized: false // Sunucu sertifika takılmalarını önler
-    },
-    connectionTimeout: 20000, // Sunucu yanıt vermezse süreyi 20 saniyeye uzatır
-    greetingTimeout: 20000,
-    socketTimeout: 20000
-});
+// Resend API Üzerinden Mail Gönderme Fonksiyonu (Port Engeline Takılmaz)
+async function sendEmailViaResend(htmlContent) {
+    try {
+        const response = await fetch('https://api.resend.com/emails', {
+            method: 'POST',
+            headers: {
+                'Authorization': `Bearer ${RESEND_API_KEY}`,
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                from: 'Yonetim Paneli <onboarding@resend.dev>',
+                to: TARGET_EMAILS,
+                subject: '🔔 Geciken / Yaklaşan Ödeme Uyarısı',
+                html: htmlContent
+            })
+        });
+
+        const data = await response.json();
+        if (!response.ok) throw new Error(JSON.stringify(data));
+        
+        console.log("Uyarı maili Resend API ile başarıyla gönderildi!", data);
+    } catch (err) {
+        console.error("Resend Mail atma hatası:", err);
+    }
+}
 
 // Veritabanını Kontrol Edip Mail Atan Fonksiyon
 async function checkAndSendEmails() {
     try {
         const today = new Date().toISOString().split('T')[0];
 
-        // is_paid = false olan ve due_date bugüne eşit veya geçmiş olanları çek
         const { data, error } = await supabase
             .from('expenses')
             .select('*')
@@ -66,20 +71,12 @@ async function checkAndSendEmails() {
                 </div>
             `;
 
-            const mailOptions = {
-                from: `"Yönetim Paneli" <${GMAIL_USER}>`,
-                to: TARGET_EMAILS,
-                subject: '🔔 Geciken / Yaklaşan Ödeme Uyarısı',
-                html: mailContent
-            };
-
-            await transporter.sendMail(mailOptions);
-            console.log("Uyarı maili her iki adrese de başarıyla gönderildi!");
+            await sendEmailViaResend(mailContent);
         } else {
             console.log("Geciken veya yaklaşan ödeme bulunamadı.");
         }
     } catch (err) {
-        console.error("Mail atma hatası:", err);
+        console.error("Veritabanı kontrol hatası:", err);
     }
 }
 
@@ -97,5 +94,5 @@ const server = http.createServer(async (req, res) => {
 });
 
 server.listen(process.env.PORT || 3000, () => {
-    console.log('Arka plan mail servisi başlatıldı...');
+    console.log('Arka plan mail servisi başlatıldı (Resend API)...');
 });
