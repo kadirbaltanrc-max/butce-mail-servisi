@@ -6,13 +6,10 @@ const SUPABASE_URL = process.env.SUPABASE_URL;
 const SUPABASE_KEY = process.env.SUPABASE_KEY;
 const RESEND_API_KEY = process.env.RESEND_API_KEY;
 
-// Hedef Mail Adresleri
-const TARGET_EMAILS = ["kadirbalta.nrc@gmail.com"];
-
 // Supabase Bağlantısı
 const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
 
-// Resend API Üzerinden Mail Gönderme Fonksiyonu (Port Engeline Takılmaz)
+// Resend API Üzerinden Mail Gönderme Fonksiyonu
 async function sendEmailViaResend(htmlContent) {
     try {
         const response = await fetch('https://api.resend.com/emails', {
@@ -23,7 +20,7 @@ async function sendEmailViaResend(htmlContent) {
             },
             body: JSON.stringify({
                 from: 'Yonetim Paneli <onboarding@resend.dev>',
-                to: TARGET_EMAILS,
+                to: 'kadirbalta.nrc@gmail.com', // SADECE ONAYLI ADRES (Değiştirmeyin)
                 subject: '🔔 Geciken / Yaklaşan Ödeme Uyarısı',
                 html: htmlContent
             })
@@ -80,7 +77,7 @@ async function checkAndSendEmails() {
     }
 }
 
-// Basit HTTP Sunucusu (Cron Job Tetiklemesi İçin)
+// Basit HTTP Sunucusu
 const server = http.createServer(async (req, res) => {
     if (req.url === '/tetikle') {
         console.log("Manuel tetikleme alındı, kontroller yapılıyor...");
