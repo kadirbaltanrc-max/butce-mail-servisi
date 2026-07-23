@@ -14,19 +14,22 @@ const TARGET_EMAILS = "kadirbalta.nrc@gmail.com, nurcinneemir@gmail.com";
 // Supabase Bağlantısı
 const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
 
-// GÜNCELLENMİŞ NODEMAILER BAĞLANTISI (Zaman aşımını ve kopmaları önler)
+// GÜNCELLENMİŞ NODEMAILER BAĞLANTISI (Render.com Zaman Aşımı Çözümü)
 const transporter = nodemailer.createTransport({
     host: 'smtp.gmail.com',
-    port: 465,
-    secure: true, // 465 portu için true olmalı
+    port: 587, // 465 yerine bulut dostu 587 TLS portuna geçildi
+    secure: false, // 587 portu için false olmalı, STARTTLS otomatik devreye girer
+    requireTLS: true, // TLS şifrelemesini zorunlu kılar
     auth: {
         user: GMAIL_USER,
         pass: GMAIL_PASS
     },
     tls: {
-        // Bulut sunucularda SSL/TLS sertifika takılmalarını engeller
-        rejectUnauthorized: false 
-    }
+        rejectUnauthorized: false // Sunucu sertifika takılmalarını önler
+    },
+    connectionTimeout: 20000, // Sunucu yanıt vermezse süreyi 20 saniyeye uzatır
+    greetingTimeout: 20000,
+    socketTimeout: 20000
 });
 
 // Veritabanını Kontrol Edip Mail Atan Fonksiyon
