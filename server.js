@@ -6,18 +6,26 @@ const http = require('http');
 const SUPABASE_URL = process.env.SUPABASE_URL;
 const SUPABASE_KEY = process.env.SUPABASE_KEY;
 const GMAIL_USER = process.env.GMAIL_USER;
-const GMAIL_PASS = process.env.GMAIL_PASS; 
+const GMAIL_PASS = process.env.GMAIL_PASS;
 
 // Sabitlenmiş Hedef Mail Adresleri (Virgül ile ayrılmış)
 const TARGET_EMAILS = "kadirbalta.nrc@gmail.com, nurcinneemir@gmail.com";
 
-// Supabase ve Mail Bağlantıları
+// Supabase Bağlantısı
 const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
+
+// GÜNCELLENMİŞ NODEMAILER BAĞLANTISI (Zaman aşımını ve kopmaları önler)
 const transporter = nodemailer.createTransport({
-    service: 'gmail',
+    host: 'smtp.gmail.com',
+    port: 465,
+    secure: true, // 465 portu için true olmalı
     auth: {
         user: GMAIL_USER,
         pass: GMAIL_PASS
+    },
+    tls: {
+        // Bulut sunucularda SSL/TLS sertifika takılmalarını engeller
+        rejectUnauthorized: false 
     }
 });
 
@@ -57,7 +65,7 @@ async function checkAndSendEmails() {
 
             const mailOptions = {
                 from: `"Yönetim Paneli" <${GMAIL_USER}>`,
-                to: TARGET_EMAILS, // Doğrudan sabitlenmiş adresleri kullanır
+                to: TARGET_EMAILS,
                 subject: '🔔 Geciken / Yaklaşan Ödeme Uyarısı',
                 html: mailContent
             };
