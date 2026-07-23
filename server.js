@@ -3,15 +3,15 @@ const http = require('http');
 const fs = require('fs');
 const path = require('path');
 
-// Çevresel Değişkenler
+// Render.com Üzerinden Alınan Gizli Çevresel Değişkenler
 const SUPABASE_URL = process.env.SUPABASE_URL;
 const SUPABASE_KEY = process.env.SUPABASE_KEY;
 const RESEND_API_KEY = process.env.RESEND_API_KEY;
 
-// Supabase Bağlantısı
+// Supabase İstemci Bağlantısı
 const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
 
-// Resend API ile E-posta Gönderimi
+// Resend API Üzerinden Mail Gönderme Fonksiyonu
 async function sendEmailViaResend(htmlContent) {
     try {
         const response = await fetch('https://api.resend.com/emails', {
@@ -22,7 +22,7 @@ async function sendEmailViaResend(htmlContent) {
             },
             body: JSON.stringify({
                 from: 'Yonetim Paneli <onboarding@resend.dev>',
-                to: 'kadirbalta.nrc@gmail.com',
+                to: 'kadirbalta.nrc@gmail.com', // Sadece Onaylı Adres
                 subject: '🔔 Geciken / Yaklaşan Ödeme Uyarısı',
                 html: htmlContent
             })
@@ -30,16 +30,18 @@ async function sendEmailViaResend(htmlContent) {
 
         const data = await response.json();
         if (!response.ok) throw new Error(JSON.stringify(data));
-        console.log("Uyarı maili başarıyla gönderildi!", data);
+        console.log("Uyarı maili Resend API ile başarıyla gönderildi!");
     } catch (err) {
         console.error("Resend Mail atma hatası:", err);
     }
 }
 
-// Veritabanı Kontrolü (Cron Görevi)
+// Veritabanı Giderlerini Kontrol Etme Fonksiyonu
 async function checkAndSendEmails() {
     try {
         const today = new Date().toISOString().split('T')[0];
+        
+        // Ödenmemiş ve son ödeme tarihi gelmiş/geçmiş olanları bul
         const { data, error } = await supabase
             .from('expenses')
             .select('*')
@@ -56,35 +58,36 @@ async function checkAndSendEmails() {
             `;
             
             data.forEach(exp => {
-                const [y, m, d] = exp.due_date.split('-');
-                mailContent += `<li style="margin-bottom: 8px;"><strong>${exp.name}</strong> - <span style="color:#dc2626; font-weight:bold;">${exp.amount} ₺</span> (Son Ödeme: ${d}/${m}/${y})</li>`;
+                const [y, m, d] = (exp.due_date || '').split('-');
+                const trDate = d ? `${d}/${m}/${y}` : 'Tarih Yok';
+                mailContent += `<li style="margin-bottom: 8px;"><strong>${exp.name}</strong> - <span style="color:#dc2626; font-weight:bold;">${exp.amount} ₺</span> (Son Ödeme: ${trDate})</li>`;
             });
 
             mailContent += `</ul></div>`;
             await sendEmailViaResend(mailContent);
         } else {
-            console.log("Geciken veya yaklaşan ödeme bulunamadı.");
+            console.log("Geciken veya yaklaşan ödeme bulunamadı, mail atılmadı.");
         }
     } catch (err) {
         console.error("Veritabanı kontrol hatası:", err);
     }
 }
 
-// HTTP Sunucusu (API + Statik Dosya Sunucusu)
+// Ana HTTP Sunucusu (API + Frontend Dosya Sunumu)
 const server = http.createServer(async (req, res) => {
-    // API Rotası: Manuel veya Cron Tetikleme
+    // 1. Görev: Mail Kontrol / Tetikleme Rotası
     if (req.url === '/tetikle') {
         await checkAndSendEmails();
         res.writeHead(200, { 'Content-Type': 'text/plain; charset=utf-8' });
-        res.end('Tetikleme başarılı. Gerekliyse mailler gönderildi.');
+        res.end('Tetikleme başarılı. Veritabanı kontrol edildi.');
         return;
     } 
     
-    // Front-End Statik Dosya Yönlendirmesi
+    // 2. Görev: PWA ve Frontend Dosyalarını Ekrana Basma
     let filePath = req.url === '/' ? '/index.html' : req.url;
     filePath = path.join(__dirname, filePath);
 
-    // Modern Web için MIME Tipleri
+    // Güvenli MIME tipleri (Tarayıcının dosyaları doğru tanıması için şarttır)
     const extname = String(path.extname(filePath)).toLowerCase();
     const mimeTypes = {
         '.html': 'text/html; charset=utf-8',
@@ -96,15 +99,15 @@ const server = http.createServer(async (req, res) => {
 
     const contentType = mimeTypes[extname] || 'application/octet-stream';
 
-    // Dosyayı Oku ve Sun
+    // Dosyayı sunucu diskinden okuyup tarayıcıya yolla
     fs.readFile(filePath, (err, content) => {
         if (err) {
             if (err.code === 'ENOENT') {
                 res.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8' });
-                res.end('404: Dosya bulunamadı.');
+                res.end('404: Aranan dosya sunucuda bulunamadı.');
             } else {
                 res.writeHead(500, { 'Content-Type': 'text/plain; charset=utf-8' });
-                res.end(`Sunucu Hatası: ${err.code}`);
+                res.end(`500: Kritik Sunucu Hatası -> ${err.code}`);
             }
         } else {
             res.writeHead(200, { 'Content-Type': contentType });
@@ -113,6 +116,7 @@ const server = http.createServer(async (req, res) => {
     });
 });
 
+// Sunucuyu Render.com portlarında dinlemeye başlat
 server.listen(process.env.PORT || 3000, () => {
-    console.log('Sunucu Başlatıldı: HTML Arayüzü ve Mail Servisi Aktif');
+    console.log('Güvenli Sunucu Başlatıldı: Frontend, PWA ve Arka Plan Mail Servisi Aktif');
 });
