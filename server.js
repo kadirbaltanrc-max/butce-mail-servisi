@@ -7,7 +7,7 @@ const SUPABASE_KEY = process.env.SUPABASE_KEY;
 const RESEND_API_KEY = process.env.RESEND_API_KEY;
 
 // Hedef Mail Adresleri
-const TARGET_EMAILS = ["kadirbalta.nrc@gmail.com", "nurcinneemir@gmail.com"];
+const TARGET_EMAILS = ["kadirbalta.nrc@gmail.com"];
 
 // Supabase Bağlantısı
 const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
