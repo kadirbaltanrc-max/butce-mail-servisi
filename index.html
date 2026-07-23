@@ -1,0 +1,776 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+    <meta charset="UTF-8">
+    <!-- PWA (Mobil Uygulama) Etiketleri ve Optimize Edilmiş Görünüm -->
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <meta name="description" content="Modern Bütçe, Harcama ve Yatırım Takip Sistemi">
+    <title>Bütçe ve Yatırım Takip Sistemi</title>
+
+    <link rel="manifest" href="/manifest.json">
+    <meta name="theme-color" content="#4f46e5">
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <link rel="apple-touch-icon" href="https://cdn-icons-png.flaticon.com/512/3135/3135715.png">
+
+    <!-- Harici Kütüphaneler (CDN) -->
+    <!-- Tailwind CSS: Hızlı ve modern arayüz tasarımı için -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- ExcelJS & FileSaver: Verileri Excel formatında indirmek için -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/exceljs/4.3.0/exceljs.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/2.0.5/FileSaver.min.js"></script>
+    <!-- Supabase JS SDK: Bulut veritabanı bağlantısı için -->
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+
+    <!-- Özel Stiller -->
+    <style>
+        .hidden-section { display: none !important; }
+        .fade-in { animation: fadeIn 0.3s ease-in-out; }
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+        
+        /* Sayısal input oklarını gizleme (Daha temiz görünüm için) */
+        input[type=number]::-webkit-inner-spin-button, 
+        input[type=number]::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
+        
+        /* Hisse Senedi Tablosu Özelleştirilmiş Input Alanları */
+        .stock-input { width: 100%; min-width: 70px; background: transparent; border: 1px solid transparent; outline: none; transition: 0.2s; }
+        .stock-input.editable { background: #fff; border: 1px solid #d1d5db; border-radius: 4px; padding: 2px 4px; }
+        .stock-input.editable:focus { border-color: #6366f1; box-shadow: 0 0 0 1px #6366f1; }
+        
+        /* Standart Yeşil Excel Butonu Sınıfı */
+        .excel-btn { background-color: #16a34a; color: white; padding: 4px 12px; font-size: 0.75rem; font-weight: bold; border-radius: 4px; transition: 0.2s; box-shadow: 0 1px 2px rgba(0,0,0,0.1); }
+        .excel-btn:hover { background-color: #15803d; }
+    </style>
+</head>
+<body class="bg-gray-100 text-gray-800 font-sans min-h-screen flex flex-col">
+
+    <!-- ================= YÜKLENİYOR (LOADING) EKRANI ================= -->
+    <div id="loadingOverlay" class="fixed inset-0 bg-black bg-opacity-30 z-50 flex items-center justify-center hidden-section">
+        <div class="bg-white p-4 rounded-lg shadow-lg flex items-center gap-3">
+            <div class="animate-spin rounded-full h-6 w-6 border-b-2 border-indigo-600"></div>
+            <span class="text-sm font-bold text-gray-700">Bulut Verileri Yükleniyor...</span>
+        </div>
+    </div>
+
+    <!-- ================= GECİKEN ÖDEME UYARI MODALI ================= -->
+    <div id="alertModal" class="hidden-section fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center fade-in">
+        <div class="bg-white rounded-lg p-6 shadow-xl max-w-md w-full m-4 border-t-4 border-red-600">
+            <h2 class="text-xl font-bold text-red-600 mb-4">Yaklaşan / Geciken Ödemeler!</h2>
+            <ul id="alertList" class="list-disc pl-5 mb-4 text-gray-700 font-medium space-y-1"></ul>
+            <button onclick="closeAlert()" class="w-full bg-red-600 text-white py-2 rounded font-bold hover:bg-red-700 transition">Anladım</button>
+        </div>
+    </div>
+
+    <!-- ================= GİRİŞ EKRANI ================= -->
+    <div id="loginSection" class="flex flex-grow items-center justify-center fade-in">
+        <div class="bg-white p-8 rounded-lg shadow-md w-full max-w-sm border-t-4 border-indigo-600">
+            <h1 class="text-2xl font-bold text-center mb-6 text-indigo-600">Sisteme Giriş</h1>
+            <input type="text" id="username" class="w-full border p-2 mb-4 rounded focus:ring-2 focus:ring-indigo-400 focus:outline-none" placeholder="Kullanıcı Adı">
+            <input type="password" id="password" class="w-full border p-2 mb-6 rounded focus:ring-2 focus:ring-indigo-400 focus:outline-none" placeholder="Şifre">
+            <button onclick="login()" class="w-full bg-indigo-600 text-white font-bold py-2 rounded hover:bg-indigo-700 transition">Giriş Yap</button>
+        </div>
+    </div>
+
+    <!-- ================= ANA UYGULAMA ARAYÜZÜ ================= -->
+    <div id="appSection" class="hidden-section fade-in flex-grow flex flex-col">
+        
+        <!-- ÜST MENÜ / NAVİGASYON -->
+        <header class="bg-indigo-600 text-white shadow-md">
+            <div class="container mx-auto px-4 py-4 flex flex-col xl:flex-row justify-between items-center gap-4">
+                <h1 class="text-xl font-bold tracking-wide">Yönetim Paneli</h1>
+                <nav class="flex flex-wrap justify-center gap-2 bg-indigo-700 p-1 rounded">
+                    <button onclick="switchTab('dashboard')" class="px-3 py-1 rounded hover:bg-indigo-500 font-medium text-sm transition">Ana Panel</button>
+                    <button onclick="switchTab('expenses')" class="px-3 py-1 rounded hover:bg-indigo-500 font-medium text-sm transition">Harcama Takibi</button>
+                    <button onclick="switchTab('savings')" class="px-3 py-1 rounded hover:bg-indigo-500 font-medium text-sm transition">Vadeli Hesap Getiri</button>
+                    <button onclick="switchTab('stocks')" class="px-3 py-1 rounded hover:bg-indigo-500 font-medium text-sm transition">Hisse Senedi İşlemleri</button>
+                    <button onclick="switchTab('reports')" class="px-3 py-1 rounded hover:bg-indigo-500 font-medium text-sm bg-indigo-800 border border-indigo-400 transition">Özet Rapor</button>
+                    <button onclick="logout()" class="px-3 py-1 rounded hover:bg-red-500 bg-red-600 font-medium text-sm ml-2 transition">Çıkış</button>
+                </nav>
+            </div>
+        </header>
+
+        <!-- İÇERİK ALANI -->
+        <main class="container mx-auto px-4 py-6 flex-grow">
+            
+            <!-- SEKME 1: ANA PANEL (DASHBOARD) -->
+            <section id="dashboardTab" class="fade-in">
+                <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                    <!-- Sol Sütun (Tablo 1: Şablon) -->
+                    <div class="bg-white rounded-lg shadow border border-gray-200 p-5 relative">
+                        <div class="flex justify-between items-center border-b-2 border-green-500 pb-3 mb-4">
+                            <div>
+                                <h2 class="text-lg font-bold">Tablo 1: Şablon</h2>
+                                <input type="month" id="tab1MonthFilter" onchange="changeTab1Month()" class="mt-1 border border-green-300 rounded px-2 py-1 text-sm bg-green-50 focus:outline-none" title="Tüm Ana Panelin (Tablo 1 ve 2) Ayını Değiştirir">
+                            </div>
+                            <div class="flex flex-col items-end gap-2">
+                                <span id="lockedBadge" class="hidden-section text-xs bg-red-100 text-red-700 px-2 py-1 rounded font-bold">🔒 Salt Okunur</span>
+                                <div class="flex gap-2">
+                                    <button onclick="exportTablo1()" class="excel-btn">Excel İndir</button>
+                                    <button onclick="toggleEditTab1()" id="btnEditTab1" class="text-sm bg-yellow-400 font-bold py-1 px-3 rounded shadow-sm">Düzenle</button>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <h3 class="text-sm font-bold text-gray-600 mb-2">Aylık Gelirler</h3>
+                        <div id="incomeContainer" class="space-y-2"></div>
+                        
+                        <div class="mt-3 pt-3 border-t flex justify-between font-bold text-lg">
+                            <span class="text-gray-800">Toplam Gelir:</span>
+                            <span id="totalIncome" class="text-green-600">0 ₺</span>
+                        </div>
+                        
+                        <div class="mt-2 pt-2 border-t border-gray-200 flex justify-between font-bold text-xl bg-gray-50 p-2 rounded">
+                            <span>Fark (Kalan):</span>
+                            <span id="netDifference" class="text-green-600">0 ₺</span>
+                        </div>
+                        
+                        <div class="mt-6 border-t-2 border-orange-500 pt-4">
+                            <h3 class="text-sm font-bold text-gray-600 mb-3">Planlanan Gider Şablonu</h3>
+                            <table class="w-full text-left border-collapse" id="tablo1Table">
+                                <thead><tr class="bg-gray-100 text-sm border-b"><th class="p-2">Gider Adı</th><th class="p-2">Tutar (₺)</th><th class="p-2 text-center tab1-action hidden-section">Sil</th></tr></thead>
+                                <tbody id="plannedExpenseTableBody"></tbody>
+                            </table>
+                            <button onclick="addPlannedExpenseRow()" id="btnAddPlan" class="hidden-section mt-3 text-xs bg-gray-100 py-1.5 w-full rounded font-medium hover:bg-gray-200 transition">+ Yeni Şablon Gideri Ekle</button>
+                            <div class="mt-4 pt-3 border-t flex justify-between font-bold text-sm">
+                                <span>Planlanan Toplam:</span>
+                                <span id="totalPlannedExpense" class="text-orange-600">0 ₺</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Sağ Sütun (Tablo 2: Gerçekleşen Giderler) -->
+                    <div class="lg:col-span-2 bg-white rounded-lg shadow border border-gray-200 p-5 relative">
+                        <div class="border-b-2 border-red-500 pb-2 mb-4 flex justify-between items-start sm:items-center flex-col sm:flex-row gap-3">
+                            <div>
+                                <h2 class="text-lg font-bold">Tablo 2: Gerçekleşen Giderler</h2>
+                                <span class="text-xs bg-red-100 px-2 rounded">(Aktif Ay Arşivi)</span>
+                            </div>
+                            <div class="flex gap-2 flex-wrap">
+                                <button onclick="exportTablo2()" class="excel-btn">Excel İndir</button>
+                                <button onclick="toggleEditTab2()" id="btnEditTab2" class="text-sm bg-yellow-400 font-bold py-1.5 px-3 rounded shadow-sm">Düzenle</button>
+                                <button onclick="syncWithPlannedExpenses()" class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-1.5 rounded text-sm font-bold shadow transition" title="Seçili ay için Tablo 1'deki şablonu buraya kopyalar">Şablondan Aktar</button>
+                            </div>
+                        </div>
+                        <div class="overflow-x-auto">
+                            <table class="w-full text-left border-collapse min-w-[650px]">
+                                <thead><tr class="bg-gray-100 border-b"><th class="p-3">Gider Adı</th><th class="p-3">Tutar (₺)</th><th class="p-3">Son Ödeme Tarihi</th><th class="p-3 text-center">Durum</th><th class="p-3 text-center tab2-action hidden-section">Sil</th></tr></thead>
+                                <tbody id="expenseTableBody"></tbody>
+                            </table>
+                        </div>
+                        <button onclick="addExpenseRow()" id="btnAddAct" class="hidden-section mt-4 text-sm bg-gray-100 hover:bg-gray-200 py-1.5 px-4 rounded mb-6 transition">+ Yeni Gider Ekle</button>
+                        
+                        <!-- KASA VE ALT TOPLAMLAR -->
+                        <div class="mt-6 border-t-2 border-red-500 pt-4 md:w-1/2 ml-auto">
+                            <div class="flex justify-between items-center font-bold text-sm mb-2 px-2"><span>Toplam Gider:</span><span id="totalActualExpense" class="text-red-600 text-lg">0 ₺</span></div>
+                            <div class="flex justify-between items-center font-bold text-sm mb-2 bg-gray-50 p-2 rounded border border-gray-200">
+                                <span>Kasa:</span>
+                                <div class="flex items-center">
+                                    <input type="number" step="0.01" id="kasaInput" onchange="updateKasa(this.value)" class="w-32 bg-white border p-1 text-right focus:outline-none focus:ring-2 focus:ring-blue-400">
+                                    <span class="ml-1 text-sm">₺</span>
+                                </div>
+                            </div>
+                            <div class="flex justify-between items-center font-bold text-xl bg-gray-100 p-2 rounded border border-gray-300"><span>Fark:</span><span id="kasaDifference" class="text-green-600">0 ₺</span></div>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- SEKME 2: HARCAMA TAKİBİ -->
+            <section id="expensesTab" class="hidden-section fade-in">
+                <div class="bg-white rounded-lg shadow border border-gray-200 p-5 mb-6">
+                    <h2 class="text-lg font-bold mb-4 border-b-2 border-blue-500 pb-2">Yeni Harcama Ekle</h2>
+                    <form id="dailyExpenseForm" class="grid grid-cols-1 md:grid-cols-5 gap-4 items-end" onsubmit="addDailyExpense(event)">
+                        <div><label class="block text-xs font-medium mb-1">Kaynak</label><input type="text" id="expSource" required class="w-full border p-2 rounded focus:outline-none focus:ring-2 focus:ring-blue-400"></div>
+                        <div><label class="block text-xs font-medium mb-1">Tarih</label><input type="date" id="expDate" required class="w-full border p-2 rounded focus:outline-none focus:ring-2 focus:ring-blue-400"></div>
+                        <div><label class="block text-xs font-medium mb-1">Açıklama</label><input type="text" id="expName" required class="w-full border p-2 rounded focus:outline-none focus:ring-2 focus:ring-blue-400"></div>
+                        <div><label class="block text-xs font-medium mb-1">Tutar (₺)</label><input type="number" step="0.01" id="expAmount" required class="w-full border p-2 rounded focus:outline-none focus:ring-2 focus:ring-blue-400"></div>
+                        <button type="submit" class="bg-blue-600 text-white font-bold py-2 rounded hover:bg-blue-700 transition">Kaydet</button>
+                    </form>
+                </div>
+                <div class="bg-white rounded-lg shadow border p-5">
+                    <div class="flex justify-between items-center border-b-2 pb-3 mb-4">
+                        <h2 class="text-lg font-bold">Harcama Geçmişi</h2>
+                        <div class="flex items-center gap-3">
+                            <input type="month" id="monthFilter" onchange="renderDailyExpenses()" class="border rounded p-1 text-sm bg-white focus:outline-none">
+                            <button onclick="exportToExcel()" class="excel-btn">Excel İndir</button>
+                        </div>
+                    </div>
+                    <div class="overflow-x-auto mb-4">
+                        <table class="w-full text-left border-collapse min-w-[600px]">
+                            <thead><tr class="bg-gray-100 border-b"><th class="p-3">Kaynak</th><th class="p-3">Tarih</th><th class="p-3">Açıklama</th><th class="p-3">Tutar (₺)</th><th class="p-3 text-center">Sil</th></tr></thead>
+                            <tbody id="dailyExpenseList"></tbody>
+                        </table>
+                    </div>
+                    <div class="border-t-2 pt-3 flex justify-between font-bold text-lg"><span>Seçili Dönem Toplamı:</span><span id="monthlyExpenseTotal" class="text-red-600">0 ₺</span></div>
+                </div>
+            </section>
+
+            <!-- SEKME 3: VADELİ HESAP -->
+            <section id="savingsTab" class="hidden-section fade-in">
+                <div class="bg-white rounded-lg shadow border p-5">
+                    <div class="flex justify-between items-center border-b-2 border-teal-500 pb-3 mb-4">
+                        <h2 class="text-xl font-bold">Vadeli Hesap Getirileri</h2>
+                        <div class="flex items-center gap-3">
+                            <button onclick="exportSavings()" class="excel-btn">Excel İndir</button>
+                            <span id="savingsLockedBadge" class="hidden-section text-xs bg-red-100 text-red-700 px-2 py-1 rounded font-bold">🔒 Salt Okunur</span>
+                            <input type="month" id="savingsMonthFilter" onchange="changeSavingsMonth()" class="border border-teal-300 rounded p-1 text-sm focus:outline-none">
+                        </div>
+                    </div>
+                    <form id="savingsForm" class="grid grid-cols-1 md:grid-cols-4 gap-4 items-end mb-6 bg-teal-50 p-4 rounded-lg border border-teal-100" onsubmit="addSaving(event)">
+                        <div><label class="block text-xs font-bold text-teal-700 mb-1">Tarih</label><input type="date" id="savDate" required class="w-full border p-2 rounded focus:outline-none focus:ring-2 focus:ring-teal-400"></div>
+                        <div><label class="block text-xs font-bold text-teal-700 mb-1">Günlük Brüt Faiz (₺)</label><input type="number" step="0.01" id="savGross" required class="w-full border p-2 rounded focus:outline-none focus:ring-2 focus:ring-teal-400"></div>
+                        <div><label class="block text-xs font-bold text-teal-700 mb-1">Vergi Kesintisi (₺)</label><input type="number" step="0.01" id="savTax" required class="w-full border p-2 rounded focus:outline-none focus:ring-2 focus:ring-teal-400"></div>
+                        <button type="submit" class="bg-teal-600 hover:bg-teal-700 text-white font-bold py-2 rounded transition">Listeye Ekle</button>
+                    </form>
+                    <div class="overflow-x-auto">
+                        <table class="w-full text-left border-collapse min-w-[600px]">
+                            <thead><tr class="bg-gray-100 border-b"><th class="p-3">Tarih</th><th class="p-3 text-right">Brüt (₺)</th><th class="p-3 text-right">Vergi (₺)</th><th class="p-3 text-right text-teal-700 font-bold">Net (₺)</th><th class="p-3 text-center sav-action">İşlem</th></tr></thead>
+                            <tbody id="savingsTableBody"></tbody>
+                            <tfoot class="bg-gray-50 border-t-2 border-teal-500">
+                                <tr><td class="p-3 font-bold">AYLIK TOPLAM</td><td class="p-3 text-right font-bold" id="savTotalGross">0 ₺</td><td class="p-3 text-right font-bold text-red-600" id="savTotalTax">0 ₺</td><td class="p-3 text-right font-bold text-teal-700 text-lg" id="savTotalNet">0 ₺</td><td class="p-3 sav-action"></td></tr>
+                            </tfoot>
+                        </table>
+                    </div>
+                </div>
+            </section>
+
+            <!-- SEKME 4: HİSSE SENEDİ İŞLEMLERİ -->
+            <section id="stocksTab" class="hidden-section fade-in">
+                <!-- Hisseler içeriği tamamen orijinal kodunuzdan kopyalanmıştır[cite: 1] -->
+                <div class="bg-white rounded-lg shadow border border-gray-200 p-5">
+                    <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center border-b-2 border-indigo-500 pb-3 mb-4 gap-4">
+                        <div>
+                            <h2 class="text-xl font-bold text-gray-800">Hisse Senedi İşlemleri</h2>
+                            <p class="text-xs text-gray-500 mt-1">Sermaye, Toplam, Kâr/Zarar, Oran otomatik hesaplanır.</p>
+                        </div>
+                        <div class="flex items-center gap-3 flex-wrap">
+                            <span id="stocksLockedBadge" class="hidden-section text-xs bg-red-100 text-red-700 px-2 py-1 rounded font-bold border border-red-200">🔒 Salt Okunur</span>
+                            <div class="flex items-center gap-2 bg-indigo-50 px-3 py-1.5 rounded border border-indigo-100">
+                                <label class="text-sm font-bold text-indigo-800">Arşiv / Dönem:</label>
+                                <input type="month" id="stocksMonthFilter" onchange="changeStocksMonth()" class="border border-indigo-300 rounded p-1 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400 bg-white">
+                            </div>
+                            <button onclick="exportStocks()" class="excel-btn">Excel İndir</button>
+                            <button onclick="toggleEditTabStocks()" id="btnEditTabStocks" class="text-sm bg-yellow-400 hover:bg-yellow-500 text-yellow-900 font-bold py-1.5 px-3 rounded transition shadow-sm">Düzenle</button>
+                        </div>
+                    </div>
+                    <div class="overflow-x-auto pb-4">
+                        <table class="w-full text-left border-collapse min-w-[1400px] text-sm">
+                            <thead>
+                                <tr class="bg-indigo-50 text-indigo-900 border-b-2 border-indigo-200">
+                                    <th class="p-2 w-32">Hesap Adı</th>
+                                    <th class="p-2 w-32">Hisse Adı</th>
+                                    <th class="p-2 w-20">Adet</th>
+                                    <th class="p-2 w-24">Alış (₺)</th>
+                                    <th class="p-2 w-24">Satış (₺)</th>
+                                    <th class="p-2 w-32">Satış Tarihi</th>
+                                    <th class="p-2 w-28 bg-gray-100 text-right">Toplam (₺)</th>
+                                    <th class="p-2 w-28 bg-gray-100 text-right">Kâr/Zarar (₺)</th>
+                                    <th class="p-2 w-20 bg-gray-100 text-center">Oran (%)</th>
+                                    <th class="p-2 w-16 bg-gray-100 text-center">Gün</th>
+                                    <th class="p-2 w-32">İlk İşlem Tarihi</th>
+                                    <th class="p-2 w-28 bg-gray-100 text-right">Sermaye (₺)</th>
+                                    <th class="p-2 w-20 text-center">Hedef (Gün)</th>
+                                    <th class="p-2 text-center w-32 stock-action">İşlem</th>
+                                </tr>
+                            </thead>
+                            <tbody id="stocksTableBody"></tbody>
+                            <tfoot class="bg-gray-50 border-t-2 border-indigo-500">
+                                <tr>
+                                    <td colspan="7" class="p-3 font-bold text-right text-gray-800">EKRANDA GÖRÜNEN TOPLAM KÂR/ZARAR:</td>
+                                    <td class="p-3 text-right font-bold text-lg" id="stockTotalKarZarar">0 ₺</td>
+                                    <td colspan="3"></td>
+                                    <td class="p-3 text-right font-bold text-indigo-700 text-lg" id="stockTotalSermaye">0 ₺</td>
+                                    <td colspan="2"></td>
+                                </tr>
+                            </tfoot>
+                        </table>
+                    </div>
+                    <button onclick="addStockRow()" id="btnAddStock" class="hidden-section mt-2 text-sm bg-indigo-100 hover:bg-indigo-200 text-indigo-800 font-bold py-2 px-4 rounded transition w-full shadow-sm">+ Yeni Hisse Kaydı Ekle</button>
+
+                    <div class="mt-10 pt-6 border-t-4 border-indigo-200">
+                        <div class="flex justify-between items-center mb-4">
+                            <h3 class="text-lg font-bold text-gray-800">Komisyon Giderleri</h3>
+                            <button onclick="exportCommissions()" class="excel-btn">Excel İndir</button>
+                        </div>
+                        <div class="overflow-x-auto pb-4">
+                            <table class="w-full text-left border-collapse min-w-[600px] text-sm">
+                                <thead>
+                                    <tr class="bg-indigo-50 text-indigo-900 border-b-2 border-indigo-200">
+                                        <th class="p-2">Tarih</th>
+                                        <th class="p-2">İşlem / Hisse Adı</th>
+                                        <th class="p-2 text-right">Komisyon Tutarı (₺)</th>
+                                        <th class="p-2 text-center w-20 stock-action">Sil</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="commissionsTableBody"></tbody>
+                                <tfoot class="bg-gray-50 border-t-2 border-indigo-500">
+                                    <tr>
+                                        <td colspan="2" class="p-3 font-bold text-right text-gray-800">TOPLAM KOMİSYON:</td>
+                                        <td class="p-3 text-right font-bold text-red-600 text-lg" id="stockTotalCommission">0 ₺</td>
+                                        <td class="stock-action"></td>
+                                    </tr>
+                                </tfoot>
+                            </table>
+                        </div>
+                        <button onclick="addCommissionRow()" id="btnAddCommission" class="hidden-section mt-2 text-sm bg-red-50 hover:bg-red-100 text-red-800 border border-red-200 font-bold py-1.5 px-4 rounded transition w-full shadow-sm">+ Yeni Komisyon Ekle</button>
+                    </div>
+                </div>
+            </section>
+
+            <!-- SEKME 5: ÖZET RAPOR -->
+            <section id="reportsTab" class="hidden-section fade-in">
+                <!-- Rapor içeriği tamamen orijinal kodunuzdan kopyalanmıştır[cite: 1] -->
+                <div class="bg-white rounded-lg shadow border border-gray-200 p-5">
+                    <h2 class="text-xl font-bold border-b-2 border-indigo-500 pb-3 mb-6 text-gray-800">Geçmiş Dönem Ek Gelir Özet Raporu</h2>
+                    <div class="space-y-6">
+                        <div class="bg-indigo-50 border border-indigo-100 rounded-lg p-5 flex flex-col sm:flex-row justify-between items-center shadow-sm">
+                            <span class="text-lg font-bold text-indigo-900 mb-2 sm:mb-0">2024 Yılı Toplam Ek Gelir</span>
+                            <span class="text-2xl font-bold text-green-600">28.851,92 ₺</span>
+                        </div>
+                        <div class="bg-indigo-50 border border-indigo-100 rounded-lg p-5 flex flex-col sm:flex-row justify-between items-center shadow-sm">
+                            <span class="text-lg font-bold text-indigo-900 mb-2 sm:mb-0">2025 Yılı Toplam Ek Gelir</span>
+                            <span class="text-2xl font-bold text-green-600">16.547,88 ₺</span>
+                        </div>
+                        <div class="border border-indigo-300 rounded-lg overflow-hidden shadow-sm">
+                            <button onclick="toggleAccordion('acc2026')" class="w-full bg-indigo-600 hover:bg-indigo-700 p-4 flex justify-between items-center focus:outline-none transition-colors">
+                                <div class="flex items-center gap-4">
+                                    <span class="text-lg font-bold text-white">2026 Yılı Detaylı Özet Raporu</span>
+                                    <span class="text-xl font-bold text-green-300 bg-indigo-800 px-3 py-1 rounded shadow-inner" id="acc2026TotalBadge">0 ₺</span>
+                                </div>
+                                <span id="acc2026-icon" class="text-white transform transition-transform duration-300 text-xl font-bold">&#9660;</span>
+                            </button>
+                            <div id="acc2026" class="bg-white p-4 border-t border-indigo-200 hidden-section">
+                                <p class="text-xs text-gray-500 mb-3 text-center">NOT: Temmuz ve sonrası veriler sistemden otomatik hesaplanır. Hisseler <b class="text-indigo-600">Satış Tarihine</b> göre ilgili aya işlenir.</p>
+                                <div class="overflow-x-auto">
+                                    <table class="w-full text-center border-collapse text-sm">
+                                        <thead>
+                                            <tr class="bg-gray-100 text-indigo-900 border-b-2 border-indigo-200">
+                                                <th class="p-3 border-r border-gray-200">AY</th>
+                                                <th class="p-3 border-r border-gray-200">BFG (₺)</th>
+                                                <th class="p-3 border-r border-gray-200">VERGİ (₺)</th>
+                                                <th class="p-3 border-r border-gray-200">VHG (₺)</th>
+                                                <th class="p-3 border-r border-gray-200">FİG (₺)</th>
+                                                <th class="p-3 bg-indigo-50 font-bold">TEG (₺)</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody id="report2026Body"></tbody>
+                                        <tfoot class="bg-indigo-100 font-bold border-t-4 border-indigo-500">
+                                            <tr>
+                                                <td class="p-3 border-r border-indigo-200 text-indigo-900">2026 TOPLAM</td>
+                                                <td class="p-3 border-r border-indigo-200 text-right text-gray-800" id="rep2026Bfg">0 ₺</td>
+                                                <td class="p-3 border-r border-indigo-200 text-right text-red-600" id="rep2026Vergi">0 ₺</td>
+                                                <td class="p-3 border-r border-indigo-200 text-right text-teal-700" id="rep2026Vhg">0 ₺</td>
+                                                <td class="p-3 border-r border-indigo-200 text-right" id="rep2026Fig">0 ₺</td>
+                                                <td class="p-3 text-right text-green-700 text-lg" id="rep2026Teg">0 ₺</td>
+                                            </tr>
+                                        </tfoot>
+                                    </table>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </section>
+        </main>
+    </div>
+
+    <!-- ================= JAVASCRIPT & SUPABASE KODLARI ================= -->
+    <script>
+        // Orijinal projenizdeki Supabase bağlantısı ve JavaScript mantığı tamamen korunmuştur[cite: 1]
+        const SUPABASE_URL = "https://bcrffqtluklprlergnpm.supabase.co";
+        const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImJjcmZmcXRsdWtscHJsZXJnbnBtIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODQ3MDY3MTUsImV4cCI6MjEwMDI4MjcxNX0.liiJahBNo__nyYvL_jfoBnnoGEi1deD-W686Ovl-Tm8";
+        const db = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+        function getCurrentMonthStr() { const d = new Date(); return d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, '0'); }
+        function canEditMonth(mStr) {
+            if (mStr >= getCurrentMonthStr()) return true;
+            const [y, m] = mStr.split('-').map(Number);
+            return new Date(new Date().getFullYear(), new Date().getMonth(), new Date().getDate()) <= new Date(y, m, 10);
+        }
+        function showLoading(show) { document.getElementById('loadingOverlay').classList.toggle('hidden-section', !show); }
+
+        let state = { monthlyData: {}, dailyExpenses: [], kasaAmount: 0 };
+        let currentViewMonthTab1 = getCurrentMonthStr(); 
+        let currentViewMonthSavings = getCurrentMonthStr(); 
+        let currentViewMonthStocks = getCurrentMonthStr();
+        let isEditTab1 = false; let isEditTab2 = false; let isEditTabStocks = false;
+
+        document.addEventListener("DOMContentLoaded", async () => {
+            const todayStr = new Date().toISOString().split('T')[0];
+            document.getElementById('monthFilter').value = getCurrentMonthStr();
+            document.getElementById('expDate').value = todayStr;
+            document.getElementById('savDate').value = todayStr;
+            document.getElementById('tab1MonthFilter').value = currentViewMonthTab1;
+            document.getElementById('savingsMonthFilter').value = currentViewMonthSavings;
+            document.getElementById('stocksMonthFilter').value = currentViewMonthStocks;
+
+            if (localStorage.getItem("isLoggedIn") === "true") { showApp(); await loadAllDataFromSupabase(); }
+        });
+
+        async function loadAllDataFromSupabase() {
+            showLoading(true);
+            try {
+                const { data: stData } = await db.from('app_state').select('kasa_amount').eq('id', 1).single();
+                if(stData) state.kasaAmount = stData.kasa_amount || 0;
+
+                const { data: dExpData } = await db.from('daily_expenses').select('*');
+                state.dailyExpenses = (dExpData || []).map(d => ({ id: d.id, source: d.source, date: d.expense_date, name: d.name, amount: d.amount }));
+
+                const [incRes, planRes, expRes, savRes, stkRes, commRes] = await Promise.all([
+                    db.from('incomes').select('*'),
+                    db.from('planned_expenses').select('*'),
+                    db.from('expenses').select('*'),
+                    db.from('savings').select('*'),
+                    db.from('stocks').select('*'),
+                    db.from('commissions').select('*')
+                ]);
+
+                state.monthlyData = {};
+                const processMonth = (m) => { if (!state.monthlyData[m]) state.monthlyData[m] = { incomes: [], plannedExpenses: [], expenses: [], savings: [], stocks: [], commissions: [] }; };
+
+                (incRes.data || []).forEach(i => { processMonth(i.month_key); state.monthlyData[i.month_key].incomes.push({ id: i.id, name: i.name, amount: i.amount }); });
+                (planRes.data || []).forEach(p => { processMonth(p.month_key); state.monthlyData[p.month_key].plannedExpenses.push({ id: p.id, name: p.name, amount: p.amount }); });
+                (expRes.data || []).forEach(e => { 
+                    const mk = e.month_key || getCurrentMonthStr(); processMonth(mk); 
+                    state.monthlyData[mk].expenses.push({ id: e.id, name: e.name, amount: e.amount, date: e.due_date, isPaid: e.is_paid }); 
+                });
+                (savRes.data || []).forEach(s => { processMonth(s.month_key); state.monthlyData[s.month_key].savings.push({ id: s.id, date: s.saving_date, gross: s.gross, tax: s.tax, net: s.net }); });
+                (stkRes.data || []).forEach(s => { 
+                    processMonth(s.month_key); 
+                    state.monthlyData[s.month_key].stocks.push({ id: s.id, hesapAdi: s.account_name, hisseAdi: s.stock_name, adet: s.quantity, fiyat: s.buy_price, satisFiyati: s.sell_price, satisTarihi: s.sell_date, ilkIslemTarihi: s.first_trade_date, sermaye: s.capital, hedef: s.target_days, isSold: s.is_sold }); 
+                });
+                (commRes.data || []).forEach(c => { processMonth(c.month_key); state.monthlyData[c.month_key].commissions.push({ id: c.id, tarih: c.commission_date, islemAdi: c.trade_name, tutar: c.amount }); });
+
+                await initializeMonthIfMissing(currentViewMonthTab1); await initializeMonthIfMissing(currentViewMonthSavings); await initializeMonthIfMissing(currentViewMonthStocks);
+                renderApp();
+            } catch (err) { console.error("Hata:", err); } finally { showLoading(false); }
+        }
+
+        async function initializeMonthIfMissing(monthStr) {
+            if (!state.monthlyData[monthStr]) {
+                state.monthlyData[monthStr] = { incomes: [{ id: Date.now()+1, name: "NB", amount: 42000 }, { id: Date.now()+2, name: "KB", amount: 61309.43 }, { id: 3, name: "Ek Gelir", amount: 0 }], plannedExpenses: [], expenses: [], savings: [], stocks: [], commissions: [] };
+                await db.from('incomes').insert([{ id: Date.now()+1, month_key: monthStr, name: "NB", amount: 42000 }, { id: Date.now()+2, month_key: monthStr, name: "KB", amount: 61309.43 }, { id: 3, month_key: monthStr, name: "Ek Gelir", amount: 0 }]);
+            }
+        }
+
+        function login() { 
+            if (document.getElementById("username").value === "KNEABB" && document.getElementById("password").value === "KNEABB") { 
+                localStorage.setItem("isLoggedIn", "true"); showApp(); loadAllDataFromSupabase(); 
+            } else { alert("Hatalı kullanıcı adı veya şifre!"); }
+        }
+        function logout() { localStorage.removeItem("isLoggedIn"); location.reload(); }
+        
+        function showApp() { 
+            document.getElementById("loginSection").classList.add("hidden-section"); 
+            document.getElementById("appSection").classList.remove("hidden-section"); 
+            renderApp(); 
+            checkDueDates(); 
+        }
+
+        function switchTab(tabId) { 
+            ['dashboard', 'expenses', 'savings', 'stocks', 'reports'].forEach(t => { const el = document.getElementById(`${t}Tab`); if(el) el.classList.add("hidden-section"); }); 
+            document.getElementById(`${tabId}Tab`).classList.remove("hidden-section"); 
+            if(tabId === 'dashboard') { updateTotals(); renderIncomes(); } 
+            if(tabId === 'expenses') renderDailyExpenses(); 
+            if(tabId === 'savings') renderSavings(); 
+            if(tabId === 'stocks') renderStocks(); 
+            if(tabId === 'reports') renderReports(); 
+        }
+
+        async function changeStocksMonth() { currentViewMonthStocks = document.getElementById('stocksMonthFilter').value; await initializeMonthIfMissing(currentViewMonthStocks); isEditTabStocks = false; renderStocks(); }
+        function toggleEditTabStocks() { if(!canEditMonth(currentViewMonthStocks)) return; isEditTabStocks = !isEditTabStocks; const btn = document.getElementById("btnEditTabStocks"); btn.innerText = isEditTabStocks ? "Kaydet / Bitir" : "Düzenle"; btn.classList.toggle("bg-green-500", isEditTabStocks); btn.classList.toggle("text-white", isEditTabStocks); renderStocks(); }
+        function getStockInputClass(isEdit, isSold = false) { if(isSold) return "stock-input text-gray-500 line-through"; return isEdit ? "stock-input editable" : "stock-input"; }
+
+        function renderStocks() {
+            const tbody = document.getElementById("stocksTableBody"); const editable = canEditMonth(currentViewMonthStocks);
+            document.getElementById("btnEditTabStocks").classList.toggle("hidden-section", !editable);
+            document.getElementById("stocksLockedBadge").classList.toggle("hidden-section", editable);
+            if (!editable) isEditTabStocks = false;
+
+            document.getElementById("btnAddStock").classList.toggle("hidden-section", !isEditTabStocks);
+            document.getElementById("btnAddCommission").classList.toggle("hidden-section", !isEditTabStocks);
+            
+            tbody.innerHTML = "";
+            const stocks = state.monthlyData[currentViewMonthStocks] ? state.monthlyData[currentViewMonthStocks].stocks : [];
+
+            stocks.forEach(st => {
+                st.sermaye = (st.adet || 0) * (st.fiyat || 0); let toplam = st.sermaye; let karZarar = 0; let oran = 0; let gun = 0;
+                if(st.satisFiyati > 0 && st.fiyat > 0) { karZarar = (st.satisFiyati - st.fiyat) * (st.adet || 0); oran = ((st.satisFiyati - st.fiyat) / st.fiyat) * 100; }
+                if(st.ilkIslemTarihi) { const diff = new Date() - new Date(st.ilkIslemTarihi); if(diff > 0) gun = Math.floor(diff / (1000 * 60 * 60 * 24)); }
+
+                let kzClass = karZarar > 0 ? "text-green-600 font-bold" : (karZarar < 0 ? "text-red-600 font-bold" : "text-gray-800");
+                let rowBg = st.isSold ? "bg-green-100 opacity-90" : "bg-white hover:bg-indigo-50"; let ro = (!isEditTabStocks || st.isSold) ? "readonly" : "";
+                let inClass = getStockInputClass(isEditTabStocks && !st.isSold, st.isSold);
+
+                tbody.innerHTML += `
+                    <tr class="${rowBg} border-b border-gray-200 transition" id="stock-row-${st.id}">
+                        <td class="p-2 border-r"><input type="text" value="${st.hesapAdi||''}" onchange="updateStockField(${st.id}, 'hesapAdi', this.value)" ${ro} class="${inClass}"></td>
+                        <td class="p-2 border-r"><input type="text" value="${st.hisseAdi||''}" onchange="updateStockField(${st.id}, 'hisseAdi', this.value)" ${ro} class="${inClass} font-bold text-indigo-700"></td>
+                        <td class="p-2 border-r"><input type="number" step="0.01" value="${st.adet||''}" onchange="updateStockField(${st.id}, 'adet', this.value)" ${ro} class="${inClass} text-center"></td>
+                        <td class="p-2 border-r"><input type="number" step="0.01" value="${st.fiyat||''}" onchange="updateStockField(${st.id}, 'fiyat', this.value)" ${ro} class="${inClass} text-right"></td>
+                        <td class="p-2 border-r"><input type="number" step="0.01" value="${st.satisFiyati||''}" onchange="updateStockField(${st.id}, 'satisFiyati', this.value)" ${ro} class="${inClass} text-right text-blue-600 font-bold"></td>
+                        <td class="p-2 border-r"><input type="date" value="${st.satisTarihi||''}" onchange="updateStockField(${st.id}, 'satisTarihi', this.value)" ${ro} class="${inClass} text-xs"></td>
+                        <td class="p-2 border-r text-right bg-gray-50/50 cell-toplam">${toplam.toLocaleString("tr-TR", { minimumFractionDigits: 2 })}</td>
+                        <td class="p-2 border-r text-right bg-gray-50/50 cell-karzarar ${kzClass}">${karZarar.toLocaleString("tr-TR", { minimumFractionDigits: 2 })}</td>
+                        <td class="p-2 border-r text-center bg-gray-50/50 cell-oran ${kzClass}">%${oran.toFixed(2)}</td>
+                        <td class="p-2 border-r text-center bg-gray-50/50 font-bold cell-gun">${gun}</td>
+                        <td class="p-2 border-r"><input type="date" value="${st.ilkIslemTarihi||''}" onchange="updateStockField(${st.id}, 'ilkIslemTarihi', this.value)" ${ro} class="${inClass} text-xs"></td>
+                        <td class="p-2 border-r text-right bg-gray-50/50 cell-sermaye">${st.sermaye.toLocaleString("tr-TR", { minimumFractionDigits: 2 })}</td>
+                        <td class="p-2 border-r"><input type="number" value="${st.hedef||''}" onchange="updateStockField(${st.id}, 'hedef', this.value)" ${ro} class="${inClass} text-center"></td>
+                        <td class="p-2 text-center stock-action ${!isEditTabStocks ? 'hidden-section' : ''} flex flex-col gap-1 items-center justify-center">
+                            ${st.isSold ? `<button onclick="toggleSoldStock(${st.id})" class="bg-gray-400 text-white text-xs px-2 py-1 rounded w-full">Geri Al</button>` : `<button onclick="toggleSoldStock(${st.id})" class="bg-green-500 text-white font-bold text-xs px-2 py-1 rounded w-full">Satıldı</button>`}
+                            <button onclick="deleteStock(${st.id})" class="text-red-500 font-bold text-sm w-full mt-1">Sil</button>
+                        </td>
+                    </tr>
+                `;
+            });
+            updateStocksTotals(); renderCommissions();
+        }
+
+        async function updateStockField(id, field, value) {
+            const item = state.monthlyData[currentViewMonthStocks].stocks.find(s => s.id === id);
+            if(['adet', 'fiyat', 'satisFiyati', 'hedef'].includes(field)) item[field] = parseFloat(value) || 0; else item[field] = value;
+            item.sermaye = (item.adet || 0) * (item.fiyat || 0);
+
+            const tr = document.getElementById(`stock-row-${id}`);
+            if (tr) {
+                let karZarar = 0; let oran = 0;
+                if(item.satisFiyati > 0 && item.fiyat > 0) { karZarar = (item.satisFiyati - item.fiyat) * (item.adet || 0); oran = ((item.satisFiyati - item.fiyat) / item.fiyat) * 100; }
+                tr.querySelector('.cell-toplam').innerText = item.sermaye.toLocaleString("tr-TR", { minimumFractionDigits: 2 });
+                tr.querySelector('.cell-sermaye').innerText = item.sermaye.toLocaleString("tr-TR", { minimumFractionDigits: 2 });
+                const kzClass = karZarar > 0 ? "text-green-600 font-bold" : (karZarar < 0 ? "text-red-600 font-bold" : "text-gray-800");
+                tr.querySelector('.cell-karzarar').innerText = karZarar.toLocaleString("tr-TR", { minimumFractionDigits: 2 });
+                tr.querySelector('.cell-karzarar').className = `p-2 border-r text-right bg-gray-50/50 cell-karzarar ${kzClass}`;
+                tr.querySelector('.cell-oran').innerText = `%${oran.toFixed(2)}`;
+                tr.querySelector('.cell-oran').className = `p-2 border-r text-center bg-gray-50/50 cell-oran ${kzClass}`;
+            }
+
+            updateStocksTotals();
+            await db.from('stocks').upsert({ id: item.id, month_key: currentViewMonthStocks, account_name: item.hesapAdi, stock_name: item.hisseAdi, quantity: item.adet, buy_price: item.fiyat, sell_price: item.satisFiyati, sell_date: item.satisTarihi || null, first_trade_date: item.ilkIslemTarihi || null, capital: item.sermaye, target_days: item.hedef, is_sold: item.isSold });
+            if (currentViewMonthStocks === currentViewMonthTab1) { updateTotals(); renderIncomes(); }
+        }
+
+        function updateStocksTotals() {
+            const stocks = state.monthlyData[currentViewMonthStocks] ? state.monthlyData[currentViewMonthStocks].stocks : [];
+            let totalSermaye = 0; let totalKarZarar = 0;
+            stocks.forEach(st => { totalSermaye += (st.sermaye || 0); if(st.satisFiyati > 0 && st.fiyat > 0) totalKarZarar += (st.satisFiyati - st.fiyat) * (st.adet || 0); });
+            if(document.getElementById("stockTotalSermaye")) document.getElementById("stockTotalSermaye").innerText = totalSermaye.toLocaleString("tr-TR", { minimumFractionDigits: 2 }) + " ₺";
+            if(document.getElementById("stockTotalKarZarar")) { document.getElementById("stockTotalKarZarar").innerText = totalKarZarar.toLocaleString("tr-TR", { minimumFractionDigits: 2 }) + " ₺"; document.getElementById("stockTotalKarZarar").className = `p-3 text-right font-bold text-lg ${totalKarZarar > 0 ? 'text-green-600' : (totalKarZarar < 0 ? 'text-red-600' : 'text-gray-800')}`; }
+        }
+
+        async function addStockRow() { const newItem = { id: Date.now(), month_key: currentViewMonthStocks, account_name: "", stock_name: "", quantity: 0, buy_price: 0, sell_price: 0, sell_date: null, first_trade_date: null, capital: 0, target_days: 0, is_sold: false }; await db.from('stocks').insert([newItem]); state.monthlyData[currentViewMonthStocks].stocks.push({ id: newItem.id, hesapAdi: "", hisseAdi: "", adet: 0, fiyat: 0, satisFiyati: 0, satisTarihi: "", ilkIslemTarihi: "", sermaye: 0, hedef: 0, isSold: false }); renderStocks(); }
+        async function deleteStock(id) { await db.from('stocks').delete().eq('id', id); state.monthlyData[currentViewMonthStocks].stocks = state.monthlyData[currentViewMonthStocks].stocks.filter(s => s.id !== id); renderStocks(); updateTotals(); renderIncomes(); }
+        async function toggleSoldStock(id) { const item = state.monthlyData[currentViewMonthStocks].stocks.find(s => s.id === id); if(item) { item.isSold = !item.isSold; if(item.isSold && !item.satisTarihi) { item.satisTarihi = new Date().toISOString().split('T')[0]; } await db.from('stocks').update({ is_sold: item.isSold, sell_date: item.satisTarihi || null }).eq('id', id); renderStocks(); updateTotals(); renderIncomes(); } }
+
+        function renderCommissions() {
+            const tbody = document.getElementById("commissionsTableBody"); tbody.innerHTML = ""; let totalCommission = 0;
+            const commissions = state.monthlyData[currentViewMonthStocks] ? state.monthlyData[currentViewMonthStocks].commissions : [];
+            commissions.forEach(c => {
+                totalCommission += (c.tutar || 0); let ro = !isEditTabStocks ? "readonly" : ""; let inClass = getStockInputClass(isEditTabStocks);
+                tbody.innerHTML += `<tr class="bg-white hover:bg-red-50 border-b transition"><td class="p-2 border-r"><input type="date" value="${c.tarih||''}" onchange="updateCommField(${c.id}, 'tarih', this.value)" ${ro} class="${inClass} text-sm"></td><td class="p-2 border-r"><input type="text" value="${c.islemAdi||''}" onchange="updateCommField(${c.id}, 'islemAdi', this.value)" ${ro} class="${inClass}"></td><td class="p-2 border-r"><input type="number" step="0.01" value="${c.tutar||''}" onchange="updateCommField(${c.id}, 'tutar', this.value)" ${ro} class="${inClass} text-right text-red-600 font-bold"></td><td class="p-2 text-center stock-action ${!isEditTabStocks ? 'hidden-section' : ''}"><button onclick="deleteCommission(${c.id})" class="text-red-500 font-bold text-xl">&times;</button></td></tr>`;
+            });
+            document.getElementById("stockTotalCommission").innerText = totalCommission.toLocaleString("tr-TR", { minimumFractionDigits: 2 }) + " ₺";
+        }
+        async function updateCommField(id, field, value) { const item = state.monthlyData[currentViewMonthStocks].commissions.find(c => c.id === id); item[field] = field === 'tutar' ? parseFloat(value) || 0 : value; await db.from('commissions').upsert({ id: item.id, month_key: currentViewMonthStocks, commission_date: item.tarih || null, trade_name: item.islemAdi, amount: item.tutar }); renderStocks(); if (currentViewMonthStocks === currentViewMonthTab1) { updateTotals(); renderIncomes(); } }
+        async function addCommissionRow() { const newItem = { id: Date.now(), month_key: currentViewMonthStocks, commission_date: null, trade_name: "", amount: 0 }; await db.from('commissions').insert([newItem]); if(!state.monthlyData[currentViewMonthStocks].commissions) state.monthlyData[currentViewMonthStocks].commissions = []; state.monthlyData[currentViewMonthStocks].commissions.push({ id: newItem.id, tarih: "", islemAdi: "", tutar: 0 }); renderStocks(); }
+        async function deleteCommission(id) { await db.from('commissions').delete().eq('id', id); state.monthlyData[currentViewMonthStocks].commissions = state.monthlyData[currentViewMonthStocks].commissions.filter(c => c.id !== id); renderStocks(); updateTotals(); renderIncomes(); }
+
+        function toggleAccordion(id) {
+            const el = document.getElementById(id); const icon = document.getElementById(id + '-icon');
+            if (el.classList.contains('hidden-section')) { el.classList.remove('hidden-section'); icon.style.transform = 'rotate(180deg)'; } else { el.classList.add('hidden-section'); icon.style.transform = 'rotate(0deg)'; }
+        }
+
+        function renderReports() {
+            const tbody = document.getElementById('report2026Body'); tbody.innerHTML = '';
+            const staticData = [{ ay: 'Ocak', bfg: 837.19, vergi: 146.50, vhg: 690.69, fig: 2626.05, teg: 3316.74 }, { ay: 'Şubat', bfg: 1399.36, vergi: 244.08, vhg: 1155.28, fig: 6086.70, teg: 7241.98 }, { ay: 'Mart', bfg: 2215.23, vergi: 387.67, vhg: 1827.56, fig: 2401.52, teg: 4229.08 }, { ay: 'Nisan', bfg: 3896.36, vergi: 682.09, vhg: 3214.27, fig: -42.00, teg: 3172.27 }, { ay: 'Mayıs', bfg: 3022.73, vergi: 528.97, vhg: 2493.76, fig: -33.51, teg: 2460.25 }, { ay: 'Haziran', bfg: 6242.31, vergi: 1092.42, vhg: 5149.89, fig: 1151.44, teg: 6301.33 }];
+            let totalBfg = 0, totalVergi = 0, totalVhg = 0, totalFig = 0, totalTeg = 0; const monthNames = ["Ocak", "Şubat", "Mart", "Nisan", "Mayıs", "Haziran", "Temmuz", "Ağustos", "Eylül", "Ekim", "Kasım", "Aralık"];
+
+            staticData.forEach(d => {
+                totalBfg += d.bfg; totalVergi += d.vergi; totalVhg += d.vhg; totalFig += d.fig; totalTeg += d.teg; let figClass = d.fig >= 0 ? 'text-green-600' : 'text-red-600';
+                tbody.innerHTML += `<tr class="bg-white border-b"><td class="p-3 border-r font-bold">${d.ay}</td><td class="p-3 border-r text-right">${d.bfg.toLocaleString("tr-TR", {minimumFractionDigits:2})}</td><td class="p-3 border-r text-right text-red-500">${d.vergi.toLocaleString("tr-TR", {minimumFractionDigits:2})}</td><td class="p-3 border-r text-right text-teal-700 font-bold">${d.vhg.toLocaleString("tr-TR", {minimumFractionDigits:2})}</td><td class="p-3 border-r text-right font-bold ${figClass}">${d.fig.toLocaleString("tr-TR", {minimumFractionDigits:2})}</td><td class="p-3 text-right bg-indigo-50 font-bold text-green-700">${d.teg.toLocaleString("tr-TR", {minimumFractionDigits:2})}</td></tr>`;
+            });
+
+            const dynamicMonths = Object.keys(state.monthlyData).filter(m => m >= "2026-07").sort();
+            dynamicMonths.forEach(mStr => {
+                const monthIdx = parseInt(mStr.split('-')[1]) - 1; const mName = monthNames[monthIdx]; const data = state.monthlyData[mStr];
+                let bfg = 0, vergi = 0, vhg = 0, fig = 0, teg = 0;
+                if(data.savings) { data.savings.forEach(s => { bfg += (s.gross || 0); vergi += (s.tax || 0); vhg += (s.net || 0); }); }
+                
+                let stockKZ = 0;
+                Object.values(state.monthlyData).forEach(mAll => {
+                    if(mAll.stocks) {
+                        mAll.stocks.forEach(st => {
+                            if (st.isSold && st.satisTarihi && st.satisTarihi.startsWith(mStr)) {
+                                if (st.satisFiyati > 0 && st.fiyat > 0) stockKZ += (st.satisFiyati - st.fiyat) * (st.adet || 0);
+                            }
+                        });
+                    }
+                });
+                
+                let commTotal = 0;
+                Object.values(state.monthlyData).forEach(mAll => {
+                    if(mAll.commissions) {
+                        mAll.commissions.forEach(c => {
+                            if (c.tarih && c.tarih.startsWith(mStr)) commTotal += (c.tutar || 0);
+                        });
+                    }
+                });
+                
+                fig = stockKZ - commTotal; teg = vhg + fig;
+                totalBfg += bfg; totalVergi += vergi; totalVhg += vhg; totalFig += fig; totalTeg += teg;
+
+                let figClass = fig >= 0 ? 'text-green-600' : 'text-red-600';
+                tbody.innerHTML += `<tr class="bg-yellow-50 hover:bg-yellow-100 border-b"><td class="p-3 border-r font-bold text-indigo-800">${mName}</td><td class="p-3 border-r text-right">${bfg.toLocaleString("tr-TR", {minimumFractionDigits:2})}</td><td class="p-3 border-r text-right text-red-500">${vergi.toLocaleString("tr-TR", {minimumFractionDigits:2})}</td><td class="p-3 border-r text-right text-teal-700 font-bold">${vhg.toLocaleString("tr-TR", {minimumFractionDigits:2})}</td><td class="p-3 border-r text-right font-bold ${figClass}">${fig.toLocaleString("tr-TR", {minimumFractionDigits:2})}</td><td class="p-3 text-right bg-indigo-50 font-bold text-green-700">${teg.toLocaleString("tr-TR", {minimumFractionDigits:2})}</td></tr>`;
+            });
+
+            document.getElementById('rep2026Bfg').innerText = totalBfg.toLocaleString("tr-TR", {minimumFractionDigits:2}) + " ₺"; document.getElementById('rep2026Vergi').innerText = totalVergi.toLocaleString("tr-TR", {minimumFractionDigits:2}) + " ₺"; document.getElementById('rep2026Vhg').innerText = totalVhg.toLocaleString("tr-TR", {minimumFractionDigits:2}) + " ₺"; document.getElementById('rep2026Fig').innerText = totalFig.toLocaleString("tr-TR", {minimumFractionDigits:2}) + " ₺"; document.getElementById('rep2026Teg').innerText = totalTeg.toLocaleString("tr-TR", {minimumFractionDigits:2}) + " ₺";
+            document.getElementById('acc2026TotalBadge').innerText = totalTeg.toLocaleString("tr-TR", {minimumFractionDigits:2}) + " ₺";
+        }
+
+        function renderApp() {
+            const tab1Editable = canEditMonth(currentViewMonthTab1);
+            if (!tab1Editable) { 
+                isEditTab1 = false; 
+                document.getElementById("btnEditTab1").classList.add("hidden-section"); 
+                document.getElementById("lockedBadge").classList.remove("hidden-section"); 
+            } else { 
+                document.getElementById("btnEditTab1").classList.remove("hidden-section"); 
+                document.getElementById("lockedBadge").classList.add("hidden-section"); 
+            }
+            document.getElementById("kasaInput").value = state.kasaAmount || "";
+            updateTotals(); renderIncomes(); renderPlannedExpenses(); renderExpenses(); 
+        }
+
+        async function changeTab1Month() { currentViewMonthTab1 = document.getElementById('tab1MonthFilter').value; await initializeMonthIfMissing(currentViewMonthTab1); isEditTab1 = false; renderApp(); }
+        function toggleEditTab1() { if(!canEditMonth(currentViewMonthTab1)) return; isEditTab1 = !isEditTab1; document.getElementById("btnEditTab1").innerText = isEditTab1?"Kaydet":"Düzenle"; renderApp(); }
+        function toggleEditTab2() { isEditTab2 = !isEditTab2; document.getElementById("btnEditTab2").innerText = isEditTab2?"Kaydet":"Düzenle"; renderApp(); }
+        
+        function updateTotals() {
+            const actData = state.monthlyData[currentViewMonthTab1] || { incomes: [], plannedExpenses: [], expenses: [], savings: [], stocks: [], commissions: [] };
+            let totalSavNet = 0; if (actData.savings) actData.savings.forEach(s => totalSavNet += (s.net || 0));
+
+            let totalStockKZ = 0;
+            Object.values(state.monthlyData).forEach(mAll => {
+                if(mAll.stocks) {
+                    mAll.stocks.forEach(st => {
+                        if (st.isSold && st.satisTarihi && st.satisTarihi.startsWith(currentViewMonthTab1)) {
+                            if (st.satisFiyati > 0 && st.fiyat > 0) totalStockKZ += (st.satisFiyati - st.fiyat) * (st.adet || 0);
+                        }
+                    });
+                }
+            });
+            
+            let totalComm = 0;
+            Object.values(state.monthlyData).forEach(mAll => {
+                if(mAll.commissions) {
+                    mAll.commissions.forEach(c => {
+                        if(c.tarih && c.tarih.startsWith(currentViewMonthTab1)) totalComm += (c.tutar || 0);
+                    });
+                }
+            });
+
+            const dynamicEkGelir = totalSavNet + totalStockKZ - totalComm;
+            let ekGelirItem = actData.incomes.find(i => i.name === "Ek Gelir" || i.id === 3);
+            if (ekGelirItem) { ekGelirItem.amount = dynamicEkGelir; ekGelirItem.name = "Ek Gelir"; } else { actData.incomes.push({ id: 3, name: "Ek Gelir", amount: dynamicEkGelir }); }
+
+            const tInc = actData.incomes.reduce((s, i) => s + (i.amount||0), 0);
+            const tPlan = actData.plannedExpenses.reduce((s, i) => s + (i.amount||0), 0);
+            document.getElementById("totalIncome").innerText = tInc.toLocaleString("tr-TR", {minimumFractionDigits:2})+" ₺";
+            document.getElementById("totalPlannedExpense").innerText = tPlan.toLocaleString("tr-TR", {minimumFractionDigits:2})+" ₺";
+            document.getElementById("netDifference").innerText = (tInc-tPlan).toLocaleString("tr-TR", {minimumFractionDigits:2})+" ₺";
+            document.getElementById("netDifference").className = (tInc-tPlan)<0 ? "text-red-600" : "text-green-600";
+            
+            const activeExpenses = actData.expenses || [];
+            const tAct = activeExpenses.reduce((s, i) => s + (i.amount||0), 0);
+            document.getElementById("totalActualExpense").innerText = tAct.toLocaleString("tr-TR", {minimumFractionDigits:2})+" ₺";
+            document.getElementById("kasaDifference").innerText = ((state.kasaAmount||0)-tAct).toLocaleString("tr-TR", {minimumFractionDigits:2})+" ₺";
+            document.getElementById("kasaDifference").className = ((state.kasaAmount||0)-tAct)<0 ? "text-red-600" : "text-green-600";
+        }
+
+        async function updateKasa(val) { state.kasaAmount = parseFloat(val)||0; updateTotals(); await db.from('app_state').upsert({ id: 1, kasa_amount: state.kasaAmount }); }
+        function getInputClass(isE) { return isE ? "w-full bg-white border border-gray-300 rounded px-2 py-1 outline-none focus:ring-2 focus:ring-blue-400" : "w-full bg-transparent border-transparent cursor-default outline-none"; }
+
+        function renderIncomes() {
+            const cont = document.getElementById("incomeContainer"); cont.innerHTML = "";
+            const incomes = state.monthlyData[currentViewMonthTab1] ? state.monthlyData[currentViewMonthTab1].incomes : [];
+            incomes.forEach(inc => {
+                const isEkGelir = (inc.name === "Ek Gelir" || inc.id === 3); const isReadOnly = !isEditTab1 || isEkGelir;
+                const inClass = isEkGelir ? "w-full bg-transparent font-bold text-teal-700 outline-none" : getInputClass(isEditTab1);
+                const valClass = isEkGelir ? "w-24 bg-transparent font-bold text-teal-700 text-right outline-none" : getInputClass(isEditTab1) + " w-24 text-right";
+                cont.innerHTML += `<div class="flex justify-between items-center ${isEkGelir ? "bg-teal-50 border-teal-200" : "bg-gray-50 border-gray-100"} p-2 rounded border mb-1"><input type="text" value="${inc.name}" onchange="updateIncome(${inc.id}, 'name', this.value)" ${isReadOnly?'readonly':''} class="${inClass} w-1/2"><div class="flex items-center"><input type="number" step="0.01" value="${isEkGelir ? Number(inc.amount).toFixed(2) : inc.amount}" onchange="updateIncome(${inc.id}, 'amount', this.value)" ${isReadOnly?'readonly':''} class="${valClass}"><span class="ml-1 text-sm font-bold text-gray-500">₺</span></div></div>`;
+            });
+        }
+        async function updateIncome(id, f, v) { const item = state.monthlyData[currentViewMonthTab1].incomes.find(i=>i.id===id); item[f] = f==='amount'?parseFloat(v)||0:v; await db.from('incomes').upsert({ id: item.id, month_key: currentViewMonthTab1, name: item.name, amount: item.amount }); updateTotals(); }
+
+        function renderPlannedExpenses() {
+            const tb = document.getElementById("plannedExpenseTableBody"); tb.innerHTML = "";
+            document.querySelectorAll('.tab1-action').forEach(e=>e.classList.toggle('hidden-section', !isEditTab1)); document.getElementById('btnAddPlan').classList.toggle('hidden-section', !isEditTab1);
+            const planned = state.monthlyData[currentViewMonthTab1] ? state.monthlyData[currentViewMonthTab1].plannedExpenses : [];
+            planned.forEach(exp => { tb.innerHTML += `<tr class="border-b"><td class="p-2"><input type="text" value="${exp.name}" onchange="updatePlannedExpense(${exp.id}, 'name', this.value)" ${!isEditTab1?'readonly':''} class="${getInputClass(isEditTab1)}"></td><td class="p-2"><input type="number" value="${exp.amount}" onchange="updatePlannedExpense(${exp.id}, 'amount', this.value)" ${!isEditTab1?'readonly':''} class="${getInputClass(isEditTab1)} text-right"></td><td class="p-2 text-center tab1-action ${!isEditTab1?'hidden-section':''}"><button onclick="deletePlannedExpense(${exp.id})" class="text-red-500 font-bold">&times;</button></td></tr>`; });
+        }
+        async function updatePlannedExpense(id, f, v) { const item = state.monthlyData[currentViewMonthTab1].plannedExpenses.find(e=>e.id===id); item[f] = f==='amount'?parseFloat(v)||0:v; await db.from('planned_expenses').upsert({ id: item.id, month_key: currentViewMonthTab1, name: item.name, amount: item.amount }); updateTotals(); }
+        async function addPlannedExpenseRow() { const newItem = { id: Date.now(), month_key: currentViewMonthTab1, name: "", amount: 0 }; await db.from('planned_expenses').insert([newItem]); state.monthlyData[currentViewMonthTab1].plannedExpenses.push({id: newItem.id, name:"", amount:""}); renderApp(); }
+        async function deletePlannedExpense(id) { await db.from('planned_expenses').delete().eq('id', id); state.monthlyData[currentViewMonthTab1].plannedExpenses = state.monthlyData[currentViewMonthTab1].plannedExpenses.filter(e=>e.id!==id); renderApp(); }
+
+        async function syncWithPlannedExpenses() {
+            if(!confirm("Tablo 2 (Gerçekleşen Giderler) bu ay için şablondan aktarılıp sıfırlanacak. Emin misiniz?")) return;
+            await db.from('expenses').delete().eq('month_key', currentViewMonthTab1);
+            const newExpenses = state.monthlyData[currentViewMonthTab1].plannedExpenses.map(p=>({ id: Date.now() + Math.floor(Math.random()*10000), month_key: currentViewMonthTab1, name: p.name, amount: p.amount, due_date: null, is_paid: false }));
+            if(newExpenses.length > 0) await db.from('expenses').insert(newExpenses);
+            state.monthlyData[currentViewMonthTab1].expenses = newExpenses.map(e => ({ id: e.id, name: e.name, amount: e.amount, date: "", isPaid: false }));
+            renderApp();
+        }
+
+        function renderExpenses() {
+            const tb = document.getElementById("expenseTableBody"); tb.innerHTML = "";
+            document.querySelectorAll('.tab2-action').forEach(e=>e.classList.toggle('hidden-section', !isEditTab2)); document.getElementById('btnAddAct').classList.toggle('hidden-section', !isEditTab2);
+            const activeExpenses = state.monthlyData[currentViewMonthTab1] ? state.monthlyData[currentViewMonthTab1].expenses : [];
+            activeExpenses.forEach(exp => {
+                const isP = exp.isPaid === true || (exp.amount === 0 && exp.amount !== "");
+                tb.innerHTML += `<tr class="${isP&&!isEditTab2?'bg-green-50':'bg-white'} border-b"><td class="p-2"><input type="text" value="${exp.name}" onchange="updateExpense(${exp.id}, 'name', this.value)" ${!isEditTab2?'readonly':''} class="${getInputClass(isEditTab2)}"></td><td class="p-2"><input type="number" value="${exp.amount}" onchange="updateExpense(${exp.id}, 'amount', this.value)" ${!isEditTab2||isP?'readonly':''} class="${getInputClass(isEditTab2&&!isP)} text-right"></td><td class="p-2"><input type="date" value="${exp.date||''}" onchange="updateExpense(${exp.id}, 'date', this.value)" ${!isEditTab2?'readonly':''} class="${getInputClass(isEditTab2)} text-sm"></td><td class="p-2 text-center">${!isP?`<button onclick="markAsPaid(${exp.id})" class="bg-green-500 text-white px-2 py-1 rounded text-sm w-full shadow">Ödendi</button>`:`<span class="text-green-600 font-bold">✔</span>`}</td><td class="p-2 text-center tab2-action ${!isEditTab2?'hidden-section':''}"><button onclick="deleteExpense(${exp.id})" class="text-red-500 font-bold">&times;</button></td></tr>`;
+            });
+        }
+        async function updateExpense(id, f, v) { const item = state.monthlyData[currentViewMonthTab1].expenses.find(e=>e.id===id); item[f] = f==='amount'?parseFloat(v)||0:v; await db.from('expenses').upsert({ id: item.id, month_key: currentViewMonthTab1, name: item.name, amount: item.amount, due_date: item.date || null, is_paid: item.isPaid }); updateTotals(); }
+        async function addExpenseRow() { const newItem = { id: Date.now(), month_key: currentViewMonthTab1, name: "", amount: null, due_date: null, is_paid: false }; await db.from('expenses').insert([newItem]); if(!state.monthlyData[currentViewMonthTab1].expenses) state.monthlyData[currentViewMonthTab1].expenses = []; state.monthlyData[currentViewMonthTab1].expenses.push({id: newItem.id, name:"", amount:"", date:"", isPaid:false}); renderApp(); }
+        async function deleteExpense(id) { await db.from('expenses').delete().eq('id', id); state.monthlyData[currentViewMonthTab1].expenses = state.monthlyData[currentViewMonthTab1].expenses.filter(e=>e.id!==id); renderApp(); }
+        async function markAsPaid(id) { const i = state.monthlyData[currentViewMonthTab1].expenses.find(e=>e.id===id); if(i){ i.isPaid = true; i.amount = 0; await db.from('expenses').update({ is_paid: true, amount: 0 }).eq('id', id); renderApp(); } }
+
+        function checkDueDates() {
+            const todayStr = new Date().toISOString().split('T')[0];
+            const currentMonthExpenses = state.monthlyData[currentViewMonthTab1] ? state.monthlyData[currentViewMonthTab1].expenses : [];
+            const alerts = currentMonthExpenses.filter(exp => exp.amount > 0 && exp.date && exp.date <= todayStr);
+            if (alerts.length > 0) { document.getElementById("alertList").innerHTML = alerts.map(a => `<li><span class="font-bold">${a.name}</span> - ${a.amount} ₺</li>`).join(""); document.getElementById("alertModal").classList.remove("hidden-section"); }
+        }
+        function closeAlert() { document.getElementById("alertModal").classList.add("hidden-section"); }
+
+        function renderDailyExpenses() { const list = document.getElementById("dailyExpenseList"); list.innerHTML = ""; const filterValue = document.getElementById("monthFilter").value; let monthTotal = 0; const filtered = state.dailyExpenses.filter(exp => !filterValue || exp.date.startsWith(filterValue)); filtered.forEach(exp => { monthTotal += exp.amount; let displayDate = exp.date.includes('-') ? exp.date.split('-').reverse().join('/') : exp.date; list.innerHTML += `<tr class="border-b hover:bg-gray-50"><td class="p-3 font-semibold text-indigo-700">${exp.source || '-'}</td><td class="p-3 text-sm text-gray-600">${displayDate}</td><td class="p-3 font-medium text-gray-800">${exp.name}</td><td class="p-3 text-red-600 font-semibold">${exp.amount.toLocaleString("tr-TR", { minimumFractionDigits: 2 })} ₺</td><td class="p-3 text-center"><button onclick="deleteDailyExpense(${exp.id})" class="text-red-400 font-bold text-xl">&times;</button></td></tr>`; }); document.getElementById("monthlyExpenseTotal").innerText = monthTotal.toLocaleString("tr-TR", { minimumFractionDigits: 2 }) + " ₺"; }
+        async function addDailyExpense(e) { e.preventDefault(); const newItem = { id: Date.now(), source: document.getElementById("expSource").value, expense_date: document.getElementById("expDate").value, name: document.getElementById("expName").value, amount: parseFloat(document.getElementById("expAmount").value) }; await db.from('daily_expenses').insert([newItem]); state.dailyExpenses.push({ id: newItem.id, source: newItem.source, date: newItem.expense_date, name: newItem.name, amount: newItem.amount }); document.getElementById("monthFilter").value = newItem.expense_date.substring(0, 7); e.target.reset(); document.getElementById('expDate').value = new Date().toISOString().split('T')[0]; renderDailyExpenses(); }
+        async function deleteDailyExpense(id) { await db.from('daily_expenses').delete().eq('id', id); state.dailyExpenses = state.dailyExpenses.filter(e => e.id !== id); renderDailyExpenses(); }
+
+        async function changeSavingsMonth() { currentViewMonthSavings = document.getElementById('savingsMonthFilter').value; await initializeMonthIfMissing(currentViewMonthSavings); renderSavings(); }
+        function renderSavings() { const tbody = document.getElementById("savingsTableBody"); const form = document.getElementById("savingsForm"); const badge = document.getElementById("savingsLockedBadge"); const actions = document.querySelectorAll('.sav-action'); tbody.innerHTML = ""; let tG = 0; let tT = 0; let tN = 0; const editable = canEditMonth(currentViewMonthSavings); if (!editable) { form.classList.add("hidden-section"); badge.classList.remove("hidden-section"); actions.forEach(el => el.classList.add("hidden-section")); } else { form.classList.remove("hidden-section"); badge.classList.add("hidden-section"); actions.forEach(el => el.classList.remove("hidden-section")); } const monthSavings = state.monthlyData[currentViewMonthSavings] ? state.monthlyData[currentViewMonthSavings].savings : []; monthSavings.sort((a, b) => new Date(a.date) - new Date(b.date)); monthSavings.forEach(sav => { tG += sav.gross; tT += sav.tax; tN += sav.net; let displayDate = sav.date.includes('-') ? sav.date.split('-').reverse().join('/') : sav.date; tbody.innerHTML += `<tr class="border-b hover:bg-teal-50"><td class="p-3 text-sm">${displayDate}</td><td class="p-3 text-right">${sav.gross.toLocaleString("tr-TR", { minimumFractionDigits: 2 })}</td><td class="p-3 text-right text-red-500">${sav.tax.toLocaleString("tr-TR", { minimumFractionDigits: 2 })}</td><td class="p-3 text-right text-teal-700 font-bold">${sav.net.toLocaleString("tr-TR", { minimumFractionDigits: 2 })}</td><td class="p-3 text-center sav-action ${!editable ? 'hidden-section' : ''}"><button onclick="deleteSaving(${sav.id})" class="text-red-400 font-bold text-xl">&times;</button></td></tr>`; }); document.getElementById("savTotalGross").innerText = tG.toLocaleString("tr-TR", { minimumFractionDigits: 2 }) + " ₺"; document.getElementById("savTotalTax").innerText = tT.toLocaleString("tr-TR", { minimumFractionDigits: 2 }) + " ₺"; document.getElementById("savTotalNet").innerText = tN.toLocaleString("tr-TR", { minimumFractionDigits: 2 }) + " ₺"; }
+        async function addSaving(e) { e.preventDefault(); const date = document.getElementById("savDate").value; const savMonth = date.substring(0, 7); currentViewMonthSavings = savMonth; document.getElementById('savingsMonthFilter').value = savMonth; await initializeMonthIfMissing(savMonth); if (!canEditMonth(savMonth)) { alert("Kilitli ay!"); return; } const gross = parseFloat(document.getElementById("savGross").value) || 0; const tax = parseFloat(document.getElementById("savTax").value) || 0; const newItem = { id: Date.now(), month_key: savMonth, saving_date: date, gross, tax, net: gross - tax }; await db.from('savings').insert([newItem]); state.monthlyData[savMonth].savings.push({ id: newItem.id, date: newItem.saving_date, gross: newItem.gross, tax: newItem.tax, net: newItem.net }); e.target.reset(); document.getElementById("savDate").value = new Date().toISOString().split('T')[0]; renderSavings(); if (savMonth === currentViewMonthTab1) { updateTotals(); renderIncomes(); } }
+        async function deleteSaving(id) { await db.from('savings').delete().eq('id', id); state.monthlyData[currentViewMonthSavings].savings = state.monthlyData[currentViewMonthSavings].savings.filter(s => s.id !== id); renderSavings(); if (currentViewMonthSavings === currentViewMonthTab1) { updateTotals(); renderIncomes(); } }
+
+        const currencyFmt = '#,##0.00" ₺"';
+        async function exportTablo1() { const wb = new ExcelJS.Workbook(); const ws = wb.addWorksheet('Tablo 1'); ws.columns = [{ header: 'Açıklama', key: 'name', width: 30 }, { header: 'Tutar', key: 'amount', width: 20 }]; state.monthlyData[currentViewMonthTab1].incomes.forEach(i => ws.addRow({ name: i.name, amount: i.amount || 0 })); ws.addRow([]); state.monthlyData[currentViewMonthTab1].plannedExpenses.forEach(p => ws.addRow({ name: p.name, amount: p.amount || 0 })); ws.getColumn('amount').numFmt = currencyFmt; const buffer = await wb.xlsx.writeBuffer(); saveAs(new Blob([buffer]), `Tablo1_${currentViewMonthTab1}.xlsx`); }
+        async function exportTablo2() { const wb = new ExcelJS.Workbook(); const ws = wb.addWorksheet('Giderler'); ws.columns = [{ header: 'Gider Adı', key: 'name', width: 30 }, { header: 'Tutar', key: 'amount', width: 20 }, { header: 'Son Ödeme', key: 'date', width: 20 }]; const activeExpenses = state.monthlyData[currentViewMonthTab1] ? state.monthlyData[currentViewMonthTab1].expenses : []; activeExpenses.forEach(e => ws.addRow({ name: e.name, amount: e.amount || 0, date: e.date ? e.date.split('-').reverse().join('/') : '' })); ws.getColumn('amount').numFmt = currencyFmt; const buffer = await wb.xlsx.writeBuffer(); saveAs(new Blob([buffer]), `Tablo2_Aktif_Giderler.xlsx`); }
+        async function exportToExcel() { const wb = new ExcelJS.Workbook(); const ws = wb.addWorksheet('Harcamalar'); ws.columns = [{ header: 'Kaynak', key: 'src', width: 20 }, { header: 'Tarih', key: 'date', width: 15 }, { header: 'Açıklama', key: 'desc', width: 40 }, { header: 'Tutar', key: 'amount', width: 20 }]; state.dailyExpenses.forEach(exp => ws.addRow({ src: exp.source, date: exp.date, desc: exp.name, amount: exp.amount })); ws.getColumn('amount').numFmt = currencyFmt; const buffer = await wb.xlsx.writeBuffer(); saveAs(new Blob([buffer]), `Harcamalar.xlsx`); }
+        async function exportSavings() { const wb = new ExcelJS.Workbook(); const ws = wb.addWorksheet('Vadeli'); ws.columns = [{ header: 'Tarih', key: 'date', width: 15 }, { header: 'Brüt', key: 'gross', width: 20 }, { header: 'Vergi', key: 'tax', width: 20 }, { header: 'Net', key: 'net', width: 20 }]; const savings = state.monthlyData[currentViewMonthSavings] ? state.monthlyData[currentViewMonthSavings].savings : []; savings.forEach(s => ws.addRow({ date: s.date, gross: s.gross, tax: s.tax, net: s.net })); ['gross', 'tax', 'net'].forEach(col => ws.getColumn(col).numFmt = currencyFmt); const buffer = await wb.xlsx.writeBuffer(); saveAs(new Blob([buffer]), `VadeliHesap_${currentViewMonthSavings}.xlsx`); }
+        async function exportStocks() { const wb = new ExcelJS.Workbook(); const ws = wb.addWorksheet('Hisseler'); ws.columns = [{ header: 'Hesap', key: 'acc', width: 15 }, { header: 'Hisse', key: 'stock', width: 15 }, { header: 'Adet', key: 'qty', width: 10 }, { header: 'Alış', key: 'buy', width: 15 }, { header: 'Satış', key: 'sell', width: 15 }, { header: 'Satış Tarihi', key: 'selldate', width: 15 }, { header: 'Kâr', key: 'pl', width: 20 }]; const stocks = state.monthlyData[currentViewMonthStocks] ? state.monthlyData[currentViewMonthStocks].stocks : []; stocks.forEach(s => ws.addRow({ acc: s.hesapAdi, stock: s.hisseAdi, qty: s.adet, buy: s.fiyat, sell: s.satisFiyati, selldate: s.satisTarihi, pl: (s.satisFiyati - s.fiyat)*s.adet })); ['buy', 'sell', 'pl'].forEach(col => ws.getColumn(col).numFmt = currencyFmt); const buffer = await wb.xlsx.writeBuffer(); saveAs(new Blob([buffer]), `HisseSenedi_${currentViewMonthStocks}.xlsx`); }
+        async function exportCommissions() { const wb = new ExcelJS.Workbook(); const ws = wb.addWorksheet('Komisyonlar'); ws.columns = [{ header: 'Tarih', key: 'date', width: 15 }, { header: 'İşlem', key: 'name', width: 40 }, { header: 'Tutar', key: 'amount', width: 20 }]; const comms = state.monthlyData[currentViewMonthStocks] ? state.monthlyData[currentViewMonthStocks].commissions : []; comms.forEach(c => ws.addRow({ date: c.tarih, name: c.islemAdi, amount: c.tutar || 0 })); ws.getColumn('amount').numFmt = currencyFmt; const buffer = await wb.xlsx.writeBuffer(); saveAs(new Blob([buffer]), `Komisyonlar_${currentViewMonthStocks}.xlsx`); }
+
+        // --- PWA SERVICE WORKER BAĞLANTISI ---
+        if ('serviceWorker' in navigator) {
+            window.addEventListener('load', () => {
+                navigator.serviceWorker.register('/sw.js')
+                    .then(reg => console.log('Service Worker Aktif!', reg))
+                    .catch(err => console.error('Service Worker Hatası:', err));
+            });
+        }
+    </script>
+</body>
+</html>
