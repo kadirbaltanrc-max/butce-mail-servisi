@@ -11,7 +11,7 @@
     <meta name="theme-color" content="#4f46e5">
     <meta name="mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-    <link rel="apple-touch-icon" href="https://cdn-icons-png.flaticon.com/512/214/214366.png">
+    <link rel="apple-touch-icon" href="/icon.png"> <!-- İkon yolunuzu da güncel standarda göre düzelttim -->
 
     <!-- Harici Kütüphaneler (CDN) -->
     <!-- Tailwind CSS: Hızlı ve modern arayüz tasarımı için -->
@@ -239,7 +239,6 @@
 
             <!-- SEKME 4: HİSSE SENEDİ İŞLEMLERİ -->
             <section id="stocksTab" class="hidden-section fade-in">
-                <!-- Hisseler içeriği tamamen orijinal kodunuzdan kopyalanmıştır[cite: 1] -->
                 <div class="bg-white rounded-lg shadow border border-gray-200 p-5">
                     <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center border-b-2 border-indigo-500 pb-3 mb-4 gap-4">
                         <div>
@@ -322,7 +321,6 @@
 
             <!-- SEKME 5: ÖZET RAPOR -->
             <section id="reportsTab" class="hidden-section fade-in">
-                <!-- Rapor içeriği tamamen orijinal kodunuzdan kopyalanmıştır[cite: 1] -->
                 <div class="bg-white rounded-lg shadow border border-gray-200 p-5">
                     <h2 class="text-xl font-bold border-b-2 border-indigo-500 pb-3 mb-6 text-gray-800">Geçmiş Dönem Ek Gelir Özet Raporu</h2>
                     <div class="space-y-6">
@@ -379,7 +377,6 @@
 
     <!-- ================= JAVASCRIPT & SUPABASE KODLARI ================= -->
     <script>
-        // Orijinal projenizdeki Supabase bağlantısı ve JavaScript mantığı tamamen korunmuştur[cite: 1]
         const SUPABASE_URL = "https://bcrffqtluklprlergnpm.supabase.co";
         const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImJjcmZmcXRsdWtscHJsZXJnbnBtIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODQ3MDY3MTUsImV4cCI6MjEwMDI4MjcxNX0.liiJahBNo__nyYvL_jfoBnnoGEi1deD-W686Ovl-Tm8";
         const db = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
@@ -446,6 +443,7 @@
 
                 await initializeMonthIfMissing(currentViewMonthTab1); await initializeMonthIfMissing(currentViewMonthSavings); await initializeMonthIfMissing(currentViewMonthStocks);
                 renderApp();
+                checkDueDates(); // <--- DÜZELTME 1: Veriler tamamen yüklendikten sonra uyarı tetikleniyor.
             } catch (err) { console.error("Hata:", err); } finally { showLoading(false); }
         }
 
@@ -467,7 +465,7 @@
             document.getElementById("loginSection").classList.add("hidden-section"); 
             document.getElementById("appSection").classList.remove("hidden-section"); 
             renderApp(); 
-            checkDueDates(); 
+            // DÜZELTME 2: Buradaki checkDueDates() silindi, yükleme sonrasına alındı.
         }
 
         function switchTab(tabId) { 
@@ -553,12 +551,23 @@
             if (currentViewMonthStocks === currentViewMonthTab1) { updateTotals(); renderIncomes(); }
         }
 
+        // DÜZELTME 3: Sadece satılmamış hisselerin sermayesi toplanıyor
         function updateStocksTotals() {
             const stocks = state.monthlyData[currentViewMonthStocks] ? state.monthlyData[currentViewMonthStocks].stocks : [];
             let totalSermaye = 0; let totalKarZarar = 0;
-            stocks.forEach(st => { totalSermaye += (st.sermaye || 0); if(st.satisFiyati > 0 && st.fiyat > 0) totalKarZarar += (st.satisFiyati - st.fiyat) * (st.adet || 0); });
+            
+            stocks.forEach(st => { 
+                if (!st.isSold) {
+                    totalSermaye += (st.sermaye || 0); 
+                }
+                if(st.satisFiyati > 0 && st.fiyat > 0) totalKarZarar += (st.satisFiyati - st.fiyat) * (st.adet || 0); 
+            });
+            
             if(document.getElementById("stockTotalSermaye")) document.getElementById("stockTotalSermaye").innerText = totalSermaye.toLocaleString("tr-TR", { minimumFractionDigits: 2 }) + " ₺";
-            if(document.getElementById("stockTotalKarZarar")) { document.getElementById("stockTotalKarZarar").innerText = totalKarZarar.toLocaleString("tr-TR", { minimumFractionDigits: 2 }) + " ₺"; document.getElementById("stockTotalKarZarar").className = `p-3 text-right font-bold text-lg ${totalKarZarar > 0 ? 'text-green-600' : (totalKarZarar < 0 ? 'text-red-600' : 'text-gray-800')}`; }
+            if(document.getElementById("stockTotalKarZarar")) { 
+                document.getElementById("stockTotalKarZarar").innerText = totalKarZarar.toLocaleString("tr-TR", { minimumFractionDigits: 2 }) + " ₺"; 
+                document.getElementById("stockTotalKarZarar").className = `p-3 text-right font-bold text-lg ${totalKarZarar > 0 ? 'text-green-600' : (totalKarZarar < 0 ? 'text-red-600' : 'text-gray-800')}`; 
+            }
         }
 
         async function addStockRow() { const newItem = { id: Date.now(), month_key: currentViewMonthStocks, account_name: "", stock_name: "", quantity: 0, buy_price: 0, sell_price: 0, sell_date: null, first_trade_date: null, capital: 0, target_days: 0, is_sold: false }; await db.from('stocks').insert([newItem]); state.monthlyData[currentViewMonthStocks].stocks.push({ id: newItem.id, hesapAdi: "", hisseAdi: "", adet: 0, fiyat: 0, satisFiyati: 0, satisTarihi: "", ilkIslemTarihi: "", sermaye: 0, hedef: 0, isSold: false }); renderStocks(); }
@@ -738,11 +747,25 @@
         async function deleteExpense(id) { await db.from('expenses').delete().eq('id', id); state.monthlyData[currentViewMonthTab1].expenses = state.monthlyData[currentViewMonthTab1].expenses.filter(e=>e.id!==id); renderApp(); }
         async function markAsPaid(id) { const i = state.monthlyData[currentViewMonthTab1].expenses.find(e=>e.id===id); if(i){ i.isPaid = true; i.amount = 0; await db.from('expenses').update({ is_paid: true, amount: 0 }).eq('id', id); renderApp(); } }
 
+        // DÜZELTME 4: Sadece aktif ayı değil, TÜM geçmiş ayları tarayarak ödenmemiş faturaları uyarır
         function checkDueDates() {
             const todayStr = new Date().toISOString().split('T')[0];
-            const currentMonthExpenses = state.monthlyData[currentViewMonthTab1] ? state.monthlyData[currentViewMonthTab1].expenses : [];
-            const alerts = currentMonthExpenses.filter(exp => exp.amount > 0 && exp.date && exp.date <= todayStr);
-            if (alerts.length > 0) { document.getElementById("alertList").innerHTML = alerts.map(a => `<li><span class="font-bold">${a.name}</span> - ${a.amount} ₺</li>`).join(""); document.getElementById("alertModal").classList.remove("hidden-section"); }
+            let alerts = [];
+
+            Object.values(state.monthlyData).forEach(month => {
+                if (month.expenses) {
+                    month.expenses.forEach(exp => {
+                        if (!exp.isPaid && exp.amount > 0 && exp.date && exp.date <= todayStr) {
+                            alerts.push(exp);
+                        }
+                    });
+                }
+            });
+
+            if (alerts.length > 0) { 
+                document.getElementById("alertList").innerHTML = alerts.map(a => `<li><span class="font-bold">${a.name}</span> - ${a.amount} ₺</li>`).join(""); 
+                document.getElementById("alertModal").classList.remove("hidden-section"); 
+            }
         }
         function closeAlert() { document.getElementById("alertModal").classList.add("hidden-section"); }
 
