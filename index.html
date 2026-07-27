@@ -11,7 +11,7 @@
     <meta name="theme-color" content="#4f46e5">
     <meta name="mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-    <link rel="apple-touch-icon" href="/icon.png"> <!-- İkon yolunuzu da güncel standarda göre düzelttim -->
+    <link rel="apple-touch-icon" href="/icon.png">
 
     <!-- Harici Kütüphaneler (CDN) -->
     <!-- Tailwind CSS: Hızlı ve modern arayüz tasarımı için -->
@@ -443,7 +443,7 @@
 
                 await initializeMonthIfMissing(currentViewMonthTab1); await initializeMonthIfMissing(currentViewMonthSavings); await initializeMonthIfMissing(currentViewMonthStocks);
                 renderApp();
-                checkDueDates(); // <--- DÜZELTME 1: Veriler tamamen yüklendikten sonra uyarı tetikleniyor.
+                checkDueDates();
             } catch (err) { console.error("Hata:", err); } finally { showLoading(false); }
         }
 
@@ -465,7 +465,6 @@
             document.getElementById("loginSection").classList.add("hidden-section"); 
             document.getElementById("appSection").classList.remove("hidden-section"); 
             renderApp(); 
-            // DÜZELTME 2: Buradaki checkDueDates() silindi, yükleme sonrasına alındı.
         }
 
         function switchTab(tabId) { 
@@ -492,7 +491,13 @@
             document.getElementById("btnAddCommission").classList.toggle("hidden-section", !isEditTabStocks);
             
             tbody.innerHTML = "";
-            const stocks = state.monthlyData[currentViewMonthStocks] ? state.monthlyData[currentViewMonthStocks].stocks : [];
+            const rawStocks = state.monthlyData[currentViewMonthStocks] ? state.monthlyData[currentViewMonthStocks].stocks : [];
+
+            // DÜZELTME: Satıldı olarak işaretlenenler ÜSTTE, Yeni ve satılmayan (açık) olanlar EN ALTTA sıralanır.
+            const stocks = [...rawStocks].sort((a, b) => {
+                if (a.isSold === b.isSold) return a.id - b.id; // Kendi gruplarında ilk eklenme sırasını korur
+                return a.isSold ? -1 : 1; // Satılanlar (true) yukarı, Satılmayanlar (false/undefined) aşağıya
+            });
 
             stocks.forEach(st => {
                 st.sermaye = (st.adet || 0) * (st.fiyat || 0); let toplam = st.sermaye; let karZarar = 0; let oran = 0; let gun = 0;
@@ -551,7 +556,6 @@
             if (currentViewMonthStocks === currentViewMonthTab1) { updateTotals(); renderIncomes(); }
         }
 
-        // DÜZELTME 3: Sadece satılmamış hisselerin sermayesi toplanıyor
         function updateStocksTotals() {
             const stocks = state.monthlyData[currentViewMonthStocks] ? state.monthlyData[currentViewMonthStocks].stocks : [];
             let totalSermaye = 0; let totalKarZarar = 0;
@@ -747,7 +751,6 @@
         async function deleteExpense(id) { await db.from('expenses').delete().eq('id', id); state.monthlyData[currentViewMonthTab1].expenses = state.monthlyData[currentViewMonthTab1].expenses.filter(e=>e.id!==id); renderApp(); }
         async function markAsPaid(id) { const i = state.monthlyData[currentViewMonthTab1].expenses.find(e=>e.id===id); if(i){ i.isPaid = true; i.amount = 0; await db.from('expenses').update({ is_paid: true, amount: 0 }).eq('id', id); renderApp(); } }
 
-        // DÜZELTME 4: Sadece aktif ayı değil, TÜM geçmiş ayları tarayarak ödenmemiş faturaları uyarır
         function checkDueDates() {
             const todayStr = new Date().toISOString().split('T')[0];
             let alerts = [];
