@@ -515,7 +515,10 @@
             });
 
             stocks.forEach(st => {
-                st.sermaye = (st.adet || 0) * (st.fiyat || 0); let toplam = st.sermaye; let karZarar = 0; let oran = 0; let gun = 0;
+                st.sermaye = (st.adet || 0) * (st.fiyat || 0); 
+                let toplam = (st.adet || 0) * (st.satisFiyati || 0); 
+                let karZarar = 0; let oran = 0; let gun = 0;
+                
                 if(st.satisFiyati > 0 && st.fiyat > 0) { karZarar = (st.satisFiyati - st.fiyat) * (st.adet || 0); oran = ((st.satisFiyati - st.fiyat) / st.fiyat) * 100; }
                 if(st.ilkIslemTarihi) { const diff = new Date() - new Date(st.ilkIslemTarihi); if(diff > 0) gun = Math.floor(diff / (1000 * 60 * 60 * 24)); }
 
@@ -557,8 +560,12 @@
             if (tr) {
                 let karZarar = 0; let oran = 0;
                 if(item.satisFiyati > 0 && item.fiyat > 0) { karZarar = (item.satisFiyati - item.fiyat) * (item.adet || 0); oran = ((item.satisFiyati - item.fiyat) / item.fiyat) * 100; }
-                tr.querySelector('.cell-toplam').innerText = item.sermaye.toLocaleString("tr-TR", { minimumFractionDigits: 2 });
+                
+                let toplam = (item.adet || 0) * (item.satisFiyati || 0);
+                
+                tr.querySelector('.cell-toplam').innerText = toplam.toLocaleString("tr-TR", { minimumFractionDigits: 2 });
                 tr.querySelector('.cell-sermaye').innerText = item.sermaye.toLocaleString("tr-TR", { minimumFractionDigits: 2 });
+                
                 const kzClass = karZarar > 0 ? "text-green-600 font-bold" : (karZarar < 0 ? "text-red-600 font-bold" : "text-gray-800");
                 tr.querySelector('.cell-karzarar').innerText = karZarar.toLocaleString("tr-TR", { minimumFractionDigits: 2 });
                 tr.querySelector('.cell-karzarar').className = `p-2 border-r text-right bg-gray-50/50 cell-karzarar ${kzClass}`;
