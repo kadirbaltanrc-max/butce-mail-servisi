@@ -464,9 +464,44 @@
         }
 
         async function initializeMonthIfMissing(monthStr) {
+            // 1. Eğer ay objesi hiç yoksa (ilk defa giriliyorsa) temel iskeleti oluştur
             if (!state.monthlyData[monthStr]) {
-                state.monthlyData[monthStr] = { incomes: [{ id: Date.now()+1, name: "NB", amount: 42000 }, { id: Date.now()+2, name: "KB", amount: 61309.43 }, { id: 3, name: "Ek Gelir", amount: 0 }], plannedExpenses: [], expenses: [], savings: [], stocks: [], commissions: [] };
-                await db.from('incomes').insert([{ id: Date.now()+1, month_key: monthStr, name: "NB", amount: 42000 }, { id: Date.now()+2, month_key: monthStr, name: "KB", amount: 61309.43 }, { id: 3, month_key: monthStr, name: "Ek Gelir", amount: 0 }]);
+                state.monthlyData[monthStr] = { incomes: [], plannedExpenses: [], expenses: [], savings: [], stocks: [], commissions: [] };
+            }
+
+            // 2. İlgili ayın gelir kalemlerinde eksik olanları kontrol et
+            const incomes = state.monthlyData[monthStr].incomes;
+            const hasNB = incomes.some(i => i.name === "NB");
+            const hasKB = incomes.some(i => i.name === "KB");
+            const hasEkGelir = incomes.some(i => i.name === "Ek Gelir" || i.id === 3);
+
+            let newIncomes = [];
+            let timestamp = Date.now() + Math.floor(Math.random() * 1000); // ID çakışmasını önlemek için
+
+            // 3. Eksik olan satırları tespit edip diziye ekle
+            if (!hasNB) {
+                let nb = { id: timestamp + 1, month_key: monthStr, name: "NB", amount: 42000 };
+                newIncomes.push(nb);
+                incomes.push(nb);
+            }
+            if (!hasKB) {
+                let kb = { id: timestamp + 2, month_key: monthStr, name: "KB", amount: 61309.43 };
+                newIncomes.push(kb);
+                incomes.push(kb);
+            }
+            if (!hasEkGelir) {
+                let ek = { id: timestamp + 3, month_key: monthStr, name: "Ek Gelir", amount: 0 };
+                newIncomes.push(ek);
+                incomes.push(ek);
+            }
+
+            // 4. Eğer yeni eklenen eksik kalemler varsa bunları Supabase'e yaz
+            if (newIncomes.length > 0) {
+                try {
+                    await db.from('incomes').insert(newIncomes);
+                } catch (err) {
+                    console.error("Varsayılan gelirler oluşturulurken hata:", err);
+                }
             }
         }
 
