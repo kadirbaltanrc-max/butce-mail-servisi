@@ -451,20 +451,10 @@
                     state.monthlyData[mk].expenses.push({ id: e.id, name: e.name, amount: e.amount, date: e.due_date, isPaid: e.is_paid }); 
                 });
                 (savRes.data || []).forEach(s => { processMonth(s.month_key); state.monthlyData[s.month_key].savings.push({ id: s.id, date: s.saving_date, gross: s.gross, tax: s.tax, net: s.net }); });
-                
-                const currentActualMonth = getCurrentMonthStr();
                 (stkRes.data || []).forEach(s => { 
-                    let mk = s.month_key;
-                    // YENİ GÜNCELLEME: Eğer hisse satılmamışsa ve kayıtlı olduğu ay geçmişte kalmışsa, aktif aya kaydır.
-                    if (s.is_sold === false && mk < currentActualMonth) {
-                        mk = currentActualMonth;
-                        // Arka planda veritabanını güncelliyoruz ki kalıcı olsun
-                        db.from('stocks').update({ month_key: mk }).eq('id', s.id).catch(err => console.error(err));
-                    }
-                    processMonth(mk); 
-                    state.monthlyData[mk].stocks.push({ id: s.id, hesapAdi: s.account_name, hisseAdi: s.stock_name, adet: s.quantity, fiyat: s.buy_price, satisFiyati: s.sell_price, satisTarihi: s.sell_date, ilkIslemTarihi: s.first_trade_date, sermaye: s.capital, hedef: s.target_days, isSold: s.is_sold }); 
+                    processMonth(s.month_key); 
+                    state.monthlyData[s.month_key].stocks.push({ id: s.id, hesapAdi: s.account_name, hisseAdi: s.stock_name, adet: s.quantity, fiyat: s.buy_price, satisFiyati: s.sell_price, satisTarihi: s.sell_date, ilkIslemTarihi: s.first_trade_date, sermaye: s.capital, hedef: s.target_days, isSold: s.is_sold }); 
                 });
-
                 (commRes.data || []).forEach(c => { processMonth(c.month_key); state.monthlyData[c.month_key].commissions.push({ id: c.id, tarih: c.commission_date, islemAdi: c.trade_name, tutar: c.amount }); });
 
                 await initializeMonthIfMissing(currentViewMonthTab1); await initializeMonthIfMissing(currentViewMonthSavings); await initializeMonthIfMissing(currentViewMonthStocks);
