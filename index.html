@@ -451,10 +451,31 @@
                     state.monthlyData[mk].expenses.push({ id: e.id, name: e.name, amount: e.amount, date: e.due_date, isPaid: e.is_paid }); 
                 });
                 (savRes.data || []).forEach(s => { processMonth(s.month_key); state.monthlyData[s.month_key].savings.push({ id: s.id, date: s.saving_date, gross: s.gross, tax: s.tax, net: s.net }); });
+                
+                const currentActualMonth = getCurrentMonthStr();
                 (stkRes.data || []).forEach(s => { 
-                    processMonth(s.month_key); 
-                    state.monthlyData[s.month_key].stocks.push({ id: s.id, hesapAdi: s.account_name, hisseAdi: s.stock_name, adet: s.quantity, fiyat: s.buy_price, satisFiyati: s.sell_price, satisTarihi: s.sell_date, ilkIslemTarihi: s.first_trade_date, sermaye: s.capital, hedef: s.target_days, isSold: s.is_sold }); 
+                    let mk = s.month_key;
+
+                    // 1. KAYBOLAN GEÇMİŞ VERİLERİ KURTARMA (Auto-Recovery)
+                    // Eğer hissenin bir "Satış Tarihi" (sell_date) varsa, kesinlikle o tarihin ayında durmalıdır.
+                    if (s.sell_date && s.sell_date.length >= 7) {
+                        const correctMonth = s.sell_date.substring(0, 7);
+                        if (mk !== correctMonth) {
+                            mk = correctMonth;
+                            db.from('stocks').update({ month_key: mk }).eq('id', s.id).catch(err => console.error(err));
+                        }
+                    }
+                    // 2. AÇIK (SATILMAMIŞ) HİSSELERİ GÜNCEL AYA TAŞIMA
+                    // Sadece "Satılmadı" işaretliyse VE "Satış Fiyatı" da girilmemişse devretsin.
+                    else if (s.is_sold === false && (!s.sell_price || s.sell_price === 0) && mk && mk < currentActualMonth) {
+                        mk = currentActualMonth;
+                        db.from('stocks').update({ month_key: mk }).eq('id', s.id).catch(err => console.error(err));
+                    }
+
+                    processMonth(mk); 
+                    state.monthlyData[mk].stocks.push({ id: s.id, hesapAdi: s.account_name, hisseAdi: s.stock_name, adet: s.quantity, fiyat: s.buy_price, satisFiyati: s.sell_price, satisTarihi: s.sell_date, ilkIslemTarihi: s.first_trade_date, sermaye: s.capital, hedef: s.target_days, isSold: s.is_sold }); 
                 });
+
                 (commRes.data || []).forEach(c => { processMonth(c.month_key); state.monthlyData[c.month_key].commissions.push({ id: c.id, tarih: c.commission_date, islemAdi: c.trade_name, tutar: c.amount }); });
 
                 await initializeMonthIfMissing(currentViewMonthTab1); await initializeMonthIfMissing(currentViewMonthSavings); await initializeMonthIfMissing(currentViewMonthStocks);
@@ -465,8 +486,23 @@
 
         async function initializeMonthIfMissing(monthStr) {
             if (!state.monthlyData[monthStr]) {
-                state.monthlyData[monthStr] = { incomes: [{ id: Date.now()+1, name: "NB", amount: 42000 }, { id: Date.now()+2, name: "KB", amount: 61309.43 }, { id: 3, name: "Ek Gelir", amount: 0 }], plannedExpenses: [], expenses: [], savings: [], stocks: [], commissions: [] };
-                await db.from('incomes').insert([{ id: Date.now()+1, month_key: monthStr, name: "NB", amount: 42000 }, { id: Date.now()+2, month_key: monthStr, name: "KB", amount: 61309.43 }, { id: 3, month_key: monthStr, name: "Ek Gelir", amount: 0 }]);
+                state.monthlyData[monthStr] = { incomes: [], plannedExpenses: [], expenses: [], savings: [], stocks: [], commissions: [] };
+            }
+            
+            // BUG FIX: Ana Paneldeki Veri Kaybını Önlemek İçin.
+            // Eğer bir ay kutusu daha önce (örneğin devreden hisseler tarafından) oluşturulmuşsa ama gelir kısmı boş kalmışsa
+            // varsayılan gelir kalemlerini mutlaka ekliyoruz.
+            if (!state.monthlyData[monthStr].incomes || state.monthlyData[monthStr].incomes.length === 0) {
+                const defaultIncomes = [
+                    { id: Date.now() + Math.floor(Math.random()*1000), name: "NB", amount: 42000 },
+                    { id: Date.now() + Math.floor(Math.random()*1000) + 1, name: "KB", amount: 61309.43 },
+                    { id: 3, name: "Ek Gelir", amount: 0 }
+                ];
+                state.monthlyData[monthStr].incomes = defaultIncomes;
+                
+                await db.from('incomes').insert(
+                    defaultIncomes.map(inc => ({ id: inc.id, month_key: monthStr, name: inc.name, amount: inc.amount }))
+                ).catch(err => console.error("Varsayılan gelir eklenirken hata:", err));
             }
         }
 
@@ -764,15 +800,13 @@
             document.querySelectorAll('.tab2-action').forEach(e=>e.classList.toggle('hidden-section', !isEditTab2)); document.getElementById('btnAddAct').classList.toggle('hidden-section', !isEditTab2);
             
             const activeExpenses = state.monthlyData[currentViewMonthTab1] ? state.monthlyData[currentViewMonthTab1].expenses : [];
-            const todayStr = new Date().toISOString().split('T')[0]; // Bugünün tarihi referans alınıyor
+            const todayStr = new Date().toISOString().split('T')[0];
             
             activeExpenses.forEach(exp => {
                 const isP = exp.isPaid === true || (exp.amount === 0 && exp.amount !== "");
-                
-                // Tarih kontrolü: Eğer ödenmemişse, tarihi girilmişse ve bugünün tarihinden küçük/eşitse CSS ayarlanıyor
                 let dateClass = getInputClass(isEditTab2) + " text-sm";
                 if (!isP && exp.date && exp.date <= todayStr) {
-                    dateClass += " text-red-700 font-bold bg-red-50 rounded"; // Koyu kırmızı, kalın ve çok hafif kırmızımsı arkaplan (göz önüne çıkması için)
+                    dateClass += " text-red-700 font-bold bg-red-50 rounded"; 
                 }
 
                 tb.innerHTML += `<tr class="${isP&&!isEditTab2?'bg-green-50':'bg-white'} border-b">
