@@ -762,10 +762,26 @@
         function renderExpenses() {
             const tb = document.getElementById("expenseTableBody"); tb.innerHTML = "";
             document.querySelectorAll('.tab2-action').forEach(e=>e.classList.toggle('hidden-section', !isEditTab2)); document.getElementById('btnAddAct').classList.toggle('hidden-section', !isEditTab2);
+            
             const activeExpenses = state.monthlyData[currentViewMonthTab1] ? state.monthlyData[currentViewMonthTab1].expenses : [];
+            const todayStr = new Date().toISOString().split('T')[0]; // Bugünün tarihi referans alınıyor
+            
             activeExpenses.forEach(exp => {
                 const isP = exp.isPaid === true || (exp.amount === 0 && exp.amount !== "");
-                tb.innerHTML += `<tr class="${isP&&!isEditTab2?'bg-green-50':'bg-white'} border-b"><td class="p-2"><input type="text" value="${exp.name}" onchange="updateExpense(${exp.id}, 'name', this.value)" ${!isEditTab2?'readonly':''} class="${getInputClass(isEditTab2)}"></td><td class="p-2"><input type="number" value="${exp.amount}" onchange="updateExpense(${exp.id}, 'amount', this.value)" ${!isEditTab2||isP?'readonly':''} class="${getInputClass(isEditTab2&&!isP)} text-right"></td><td class="p-2"><input type="date" value="${exp.date||''}" onchange="updateExpense(${exp.id}, 'date', this.value)" ${!isEditTab2?'readonly':''} class="${getInputClass(isEditTab2)} text-sm"></td><td class="p-2 text-center">${!isP?`<button onclick="markAsPaid(${exp.id})" class="bg-green-500 text-white px-2 py-1 rounded text-sm w-full shadow">Ödendi</button>`:`<span class="text-green-600 font-bold">✔</span>`}</td><td class="p-2 text-center tab2-action ${!isEditTab2?'hidden-section':''}"><button onclick="deleteExpense(${exp.id})" class="text-red-500 font-bold">&times;</button></td></tr>`;
+                
+                // Tarih kontrolü: Eğer ödenmemişse, tarihi girilmişse ve bugünün tarihinden küçük/eşitse CSS ayarlanıyor
+                let dateClass = getInputClass(isEditTab2) + " text-sm";
+                if (!isP && exp.date && exp.date <= todayStr) {
+                    dateClass += " text-red-700 font-bold bg-red-50 rounded"; // Koyu kırmızı, kalın ve çok hafif kırmızımsı arkaplan (göz önüne çıkması için)
+                }
+
+                tb.innerHTML += `<tr class="${isP&&!isEditTab2?'bg-green-50':'bg-white'} border-b">
+                    <td class="p-2"><input type="text" value="${exp.name}" onchange="updateExpense(${exp.id}, 'name', this.value)" ${!isEditTab2?'readonly':''} class="${getInputClass(isEditTab2)}"></td>
+                    <td class="p-2"><input type="number" value="${exp.amount}" onchange="updateExpense(${exp.id}, 'amount', this.value)" ${!isEditTab2||isP?'readonly':''} class="${getInputClass(isEditTab2&&!isP)} text-right"></td>
+                    <td class="p-2"><input type="date" value="${exp.date||''}" onchange="updateExpense(${exp.id}, 'date', this.value)" ${!isEditTab2?'readonly':''} class="${dateClass}"></td>
+                    <td class="p-2 text-center">${!isP?`<button onclick="markAsPaid(${exp.id})" class="bg-green-500 text-white px-2 py-1 rounded text-sm w-full shadow">Ödendi</button>`:`<span class="text-green-600 font-bold">✔</span>`}</td>
+                    <td class="p-2 text-center tab2-action ${!isEditTab2?'hidden-section':''}"><button onclick="deleteExpense(${exp.id})" class="text-red-500 font-bold">&times;</button></td>
+                </tr>`;
             });
         }
         async function updateExpense(id, f, v) { const item = state.monthlyData[currentViewMonthTab1].expenses.find(e=>e.id===id); item[f] = f==='amount'?parseFloat(v)||0:v; await db.from('expenses').upsert({ id: item.id, month_key: currentViewMonthTab1, name: item.name, amount: item.amount, due_date: item.date || null, is_paid: item.isPaid }); updateTotals(); }
