@@ -557,22 +557,21 @@
                 let rowBg = st.isSold ? "bg-green-100 opacity-90" : "bg-white hover:bg-indigo-50"; let ro = (!isEditTabStocks || st.isSold) ? "readonly" : "";
                 let inClass = getStockInputClass(isEditTabStocks && !st.isSold, st.isSold);
 
-                // Düzeltme: Hisse Senedi tablosundaki type="date" input'larında onchange yerine onblur kullanıldı.
                 tbody.innerHTML += `
                     <tr class="${rowBg} border-b border-gray-200 transition" id="stock-row-${st.id}">
-                        <td class="p-2 border-r"><input type="text" value="${st.hesapAdi||''}" onblur="updateStockField(${st.id}, 'hesapAdi', this.value)" ${ro} class="${inClass}"></td>
-                        <td class="p-2 border-r"><input type="text" value="${st.hisseAdi||''}" onblur="updateStockField(${st.id}, 'hisseAdi', this.value)" ${ro} class="${inClass} font-bold text-indigo-700"></td>
-                        <td class="p-2 border-r"><input type="number" step="0.01" value="${st.adet||''}" onblur="updateStockField(${st.id}, 'adet', this.value)" ${ro} class="${inClass} text-center"></td>
-                        <td class="p-2 border-r"><input type="number" step="0.01" value="${st.fiyat||''}" onblur="updateStockField(${st.id}, 'fiyat', this.value)" ${ro} class="${inClass} text-right"></td>
-                        <td class="p-2 border-r"><input type="number" step="0.01" value="${st.satisFiyati||''}" onblur="updateStockField(${st.id}, 'satisFiyati', this.value)" ${ro} class="${inClass} text-right text-blue-600 font-bold"></td>
-                        <td class="p-2 border-r"><input type="date" value="${st.satisTarihi||''}" onblur="updateStockField(${st.id}, 'satisTarihi', this.value)" ${ro} class="${inClass} text-xs"></td>
+                        <td class="p-2 border-r"><input type="text" value="${st.hesapAdi||''}" onchange="updateStockField(${st.id}, 'hesapAdi', this.value)" ${ro} class="${inClass}"></td>
+                        <td class="p-2 border-r"><input type="text" value="${st.hisseAdi||''}" onchange="updateStockField(${st.id}, 'hisseAdi', this.value)" ${ro} class="${inClass} font-bold text-indigo-700"></td>
+                        <td class="p-2 border-r"><input type="number" step="0.01" value="${st.adet||''}" onchange="updateStockField(${st.id}, 'adet', this.value)" ${ro} class="${inClass} text-center"></td>
+                        <td class="p-2 border-r"><input type="number" step="0.01" value="${st.fiyat||''}" onchange="updateStockField(${st.id}, 'fiyat', this.value)" ${ro} class="${inClass} text-right"></td>
+                        <td class="p-2 border-r"><input type="number" step="0.01" value="${st.satisFiyati||''}" onchange="updateStockField(${st.id}, 'satisFiyati', this.value)" ${ro} class="${inClass} text-right text-blue-600 font-bold"></td>
+                        <td class="p-2 border-r"><input type="date" value="${st.satisTarihi||''}" onchange="updateStockField(${st.id}, 'satisTarihi', this.value)" ${ro} class="${inClass} text-xs"></td>
                         <td class="p-2 border-r text-right bg-gray-50/50 cell-toplam">${toplam.toLocaleString("tr-TR", { minimumFractionDigits: 2 })}</td>
                         <td class="p-2 border-r text-right bg-gray-50/50 cell-karzarar ${kzClass}">${karZarar.toLocaleString("tr-TR", { minimumFractionDigits: 2 })}</td>
                         <td class="p-2 border-r text-center bg-gray-50/50 cell-oran ${kzClass}">%${oran.toFixed(2)}</td>
                         <td class="p-2 border-r text-center bg-gray-50/50 font-bold cell-gun">${gun}</td>
-                        <td class="p-2 border-r"><input type="date" value="${st.ilkIslemTarihi||''}" onblur="updateStockField(${st.id}, 'ilkIslemTarihi', this.value)" ${ro} class="${inClass} text-xs"></td>
+                        <td class="p-2 border-r"><input type="date" value="${st.ilkIslemTarihi||''}" onchange="updateStockField(${st.id}, 'ilkIslemTarihi', this.value)" ${ro} class="${inClass} text-xs"></td>
                         <td class="p-2 border-r text-right bg-gray-50/50 cell-sermaye">${st.sermaye.toLocaleString("tr-TR", { minimumFractionDigits: 2 })}</td>
-                        <td class="p-2 border-r"><input type="number" value="${st.hedef||''}" onblur="updateStockField(${st.id}, 'hedef', this.value)" ${ro} class="${inClass} text-center"></td>
+                        <td class="p-2 border-r"><input type="number" value="${st.hedef||''}" onchange="updateStockField(${st.id}, 'hedef', this.value)" ${ro} class="${inClass} text-center"></td>
                         <td class="p-2 text-center stock-action ${!isEditTabStocks ? 'hidden-section' : ''} flex flex-col gap-1 items-center justify-center">
                             ${st.isSold ? `<button onclick="toggleSoldStock(${st.id})" class="bg-gray-400 text-white text-xs px-2 py-1 rounded w-full">Geri Al</button>` : `<button onclick="toggleSoldStock(${st.id})" class="bg-green-500 text-white font-bold text-xs px-2 py-1 rounded w-full">Satıldı</button>`}
                             <button onclick="deleteStock(${st.id})" class="text-red-500 font-bold text-sm w-full mt-1">Sil</button>
@@ -635,19 +634,39 @@
         function renderCommissions() {
             const tbody = document.getElementById("commissionsTableBody"); tbody.innerHTML = ""; let totalCommission = 0;
             const commissions = state.monthlyData[currentViewMonthStocks] ? state.monthlyData[currentViewMonthStocks].commissions : [];
+            
+            // DÜZELTME: onchange metodu tabloyu baştan çizmeyecek şekilde updateCommField içine uyarlandı. 
+            // Burada tekrar onchange kullanılıyor ki sadece değişiklik olunca tetiklensin.
             commissions.forEach(c => {
                 totalCommission += (c.tutar || 0); let ro = !isEditTabStocks ? "readonly" : ""; let inClass = getStockInputClass(isEditTabStocks);
-                // Düzeltme: Burada da "onchange" yerine "onblur" kullanıldı
                 tbody.innerHTML += `<tr class="bg-white hover:bg-red-50 border-b transition">
-                    <td class="p-2 border-r"><input type="date" value="${c.tarih||''}" onblur="updateCommField(${c.id}, 'tarih', this.value)" ${ro} class="${inClass} text-sm"></td>
-                    <td class="p-2 border-r"><input type="text" value="${c.islemAdi||''}" onblur="updateCommField(${c.id}, 'islemAdi', this.value)" ${ro} class="${inClass}"></td>
-                    <td class="p-2 border-r"><input type="number" step="0.01" value="${c.tutar||''}" onblur="updateCommField(${c.id}, 'tutar', this.value)" ${ro} class="${inClass} text-right text-red-600 font-bold"></td>
+                    <td class="p-2 border-r"><input type="date" value="${c.tarih||''}" onchange="updateCommField(${c.id}, 'tarih', this.value)" ${ro} class="${inClass} text-sm"></td>
+                    <td class="p-2 border-r"><input type="text" value="${c.islemAdi||''}" onchange="updateCommField(${c.id}, 'islemAdi', this.value)" ${ro} class="${inClass}"></td>
+                    <td class="p-2 border-r"><input type="number" step="0.01" value="${c.tutar||''}" onchange="updateCommField(${c.id}, 'tutar', this.value)" ${ro} class="${inClass} text-right text-red-600 font-bold"></td>
                     <td class="p-2 text-center stock-action ${!isEditTabStocks ? 'hidden-section' : ''}"><button onclick="deleteCommission(${c.id})" class="text-red-500 font-bold text-xl">&times;</button></td>
                 </tr>`;
             });
             document.getElementById("stockTotalCommission").innerText = totalCommission.toLocaleString("tr-TR", { minimumFractionDigits: 2 }) + " ₺";
         }
-        async function updateCommField(id, field, value) { const item = state.monthlyData[currentViewMonthStocks].commissions.find(c => c.id === id); item[field] = field === 'tutar' ? parseFloat(value) || 0 : value; await db.from('commissions').upsert({ id: item.id, month_key: currentViewMonthStocks, commission_date: item.tarih || null, trade_name: item.islemAdi, amount: item.tutar }); renderStocks(); if (currentViewMonthStocks === currentViewMonthTab1) { updateTotals(); renderIncomes(); } }
+
+        async function updateCommField(id, field, value) { 
+            const item = state.monthlyData[currentViewMonthStocks].commissions.find(c => c.id === id); 
+            item[field] = field === 'tutar' ? parseFloat(value) || 0 : value; 
+            
+            // DÜZELTME: renderStocks() kaldırıldı! Onun yerine sadece tablo içindeki toplam değer güncelleniyor.
+            // Bu sayede TAB tuşuyla geçerken veya tıklarken DOM yeniden oluşturulmayacak ve imleç kaybolmayacaktır.
+            let totalCommission = 0;
+            state.monthlyData[currentViewMonthStocks].commissions.forEach(c => {
+                totalCommission += (c.tutar || 0);
+            });
+            document.getElementById("stockTotalCommission").innerText = totalCommission.toLocaleString("tr-TR", { minimumFractionDigits: 2 }) + " ₺";
+
+            // Veritabanına arkaplanda kayıt atılıyor.
+            await db.from('commissions').upsert({ id: item.id, month_key: currentViewMonthStocks, commission_date: item.tarih || null, trade_name: item.islemAdi, amount: item.tutar }); 
+            
+            if (currentViewMonthStocks === currentViewMonthTab1) { updateTotals(); renderIncomes(); } 
+        }
+
         async function addCommissionRow() { const newItem = { id: Date.now(), month_key: currentViewMonthStocks, commission_date: null, trade_name: "", amount: 0 }; await db.from('commissions').insert([newItem]); if(!state.monthlyData[currentViewMonthStocks].commissions) state.monthlyData[currentViewMonthStocks].commissions = []; state.monthlyData[currentViewMonthStocks].commissions.push({ id: newItem.id, tarih: "", islemAdi: "", tutar: 0 }); renderStocks(); }
         async function deleteCommission(id) { await db.from('commissions').delete().eq('id', id); state.monthlyData[currentViewMonthStocks].commissions = state.monthlyData[currentViewMonthStocks].commissions.filter(c => c.id !== id); renderStocks(); updateTotals(); renderIncomes(); }
 
