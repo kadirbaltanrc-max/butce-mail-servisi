@@ -191,12 +191,28 @@
                     </form>
                 </div>
                 <div class="bg-white rounded-lg shadow border p-5">
-                    <div class="flex justify-between items-center border-b-2 pb-3 mb-4">
+                    <div class="flex flex-col md:flex-row justify-between items-start md:items-center border-b-2 pb-3 mb-4 gap-3">
                         <h2 class="text-lg font-bold">Harcama Geçmişi</h2>
-                        <div class="flex items-center gap-3">
-                            <input type="month" id="monthFilter" onchange="renderDailyExpenses()" class="border rounded p-1 text-sm bg-white focus:outline-none">
-                            <button onclick="exportToExcel()" class="excel-btn">Excel İndir</button>
+                        
+                        <!-- YENİ FİLTRELEME ALANI BAŞLANGICI -->
+                        <div class="flex flex-wrap items-center gap-2">
+                            <select id="expFilterType" onchange="toggleExpFilterType()" class="border border-gray-300 rounded p-1.5 text-sm bg-gray-50 focus:outline-none focus:ring-2 focus:ring-blue-400 font-medium">
+                                <option value="month">Aylık Görünüm</option>
+                                <option value="custom">Özel Tarih Aralığı</option>
+                            </select>
+                            
+                            <input type="month" id="monthFilter" onchange="renderDailyExpenses()" class="border border-gray-300 rounded p-1.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-400">
+                            
+                            <div id="customDateFilter" class="hidden-section flex items-center gap-2">
+                                <input type="date" id="startDateFilter" onchange="renderDailyExpenses()" class="border border-gray-300 rounded p-1.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-400">
+                                <span class="text-xs font-bold text-gray-500">-</span>
+                                <input type="date" id="endDateFilter" onchange="renderDailyExpenses()" class="border border-gray-300 rounded p-1.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-400">
+                            </div>
+                            
+                            <button onclick="exportToExcel()" class="excel-btn ml-2">Excel İndir</button>
                         </div>
+                        <!-- YENİ FİLTRELEME ALANI BİTİŞİ -->
+                        
                     </div>
                     <div class="overflow-x-auto mb-4">
                         <table class="w-full text-left border-collapse min-w-[600px]">
@@ -635,8 +651,6 @@
             const tbody = document.getElementById("commissionsTableBody"); tbody.innerHTML = ""; let totalCommission = 0;
             const commissions = state.monthlyData[currentViewMonthStocks] ? state.monthlyData[currentViewMonthStocks].commissions : [];
             
-            // DÜZELTME: onchange metodu tabloyu baştan çizmeyecek şekilde updateCommField içine uyarlandı. 
-            // Burada tekrar onchange kullanılıyor ki sadece değişiklik olunca tetiklensin.
             commissions.forEach(c => {
                 totalCommission += (c.tutar || 0); let ro = !isEditTabStocks ? "readonly" : ""; let inClass = getStockInputClass(isEditTabStocks);
                 tbody.innerHTML += `<tr class="bg-white hover:bg-red-50 border-b transition">
@@ -653,15 +667,12 @@
             const item = state.monthlyData[currentViewMonthStocks].commissions.find(c => c.id === id); 
             item[field] = field === 'tutar' ? parseFloat(value) || 0 : value; 
             
-            // DÜZELTME: renderStocks() kaldırıldı! Onun yerine sadece tablo içindeki toplam değer güncelleniyor.
-            // Bu sayede TAB tuşuyla geçerken veya tıklarken DOM yeniden oluşturulmayacak ve imleç kaybolmayacaktır.
             let totalCommission = 0;
             state.monthlyData[currentViewMonthStocks].commissions.forEach(c => {
                 totalCommission += (c.tutar || 0);
             });
             document.getElementById("stockTotalCommission").innerText = totalCommission.toLocaleString("tr-TR", { minimumFractionDigits: 2 }) + " ₺";
 
-            // Veritabanına arkaplanda kayıt atılıyor.
             await db.from('commissions').upsert({ id: item.id, month_key: currentViewMonthStocks, commission_date: item.tarih || null, trade_name: item.islemAdi, amount: item.tutar }); 
             
             if (currentViewMonthStocks === currentViewMonthTab1) { updateTotals(); renderIncomes(); } 
@@ -866,8 +877,70 @@
         }
         function closeAlert() { document.getElementById("alertModal").classList.add("hidden-section"); }
 
-        function renderDailyExpenses() { const list = document.getElementById("dailyExpenseList"); list.innerHTML = ""; const filterValue = document.getElementById("monthFilter").value; let monthTotal = 0; const filtered = state.dailyExpenses.filter(exp => !filterValue || exp.date.startsWith(filterValue)); filtered.forEach(exp => { monthTotal += exp.amount; let displayDate = exp.date.includes('-') ? exp.date.split('-').reverse().join('/') : exp.date; list.innerHTML += `<tr class="border-b hover:bg-gray-50"><td class="p-3 font-semibold text-indigo-700">${exp.source || '-'}</td><td class="p-3 text-sm text-gray-600">${displayDate}</td><td class="p-3 font-medium text-gray-800">${exp.name}</td><td class="p-3 text-red-600 font-semibold">${exp.amount.toLocaleString("tr-TR", { minimumFractionDigits: 2 })} ₺</td><td class="p-3 text-center"><button onclick="deleteDailyExpense(${exp.id})" class="text-red-400 font-bold text-xl">&times;</button></td></tr>`; }); document.getElementById("monthlyExpenseTotal").innerText = monthTotal.toLocaleString("tr-TR", { minimumFractionDigits: 2 }) + " ₺"; }
-        async function addDailyExpense(e) { e.preventDefault(); const newItem = { id: Date.now(), source: document.getElementById("expSource").value, expense_date: document.getElementById("expDate").value, name: document.getElementById("expName").value, amount: parseFloat(document.getElementById("expAmount").value) }; await db.from('daily_expenses').insert([newItem]); state.dailyExpenses.push({ id: newItem.id, source: newItem.source, date: newItem.expense_date, name: newItem.name, amount: newItem.amount }); document.getElementById("monthFilter").value = newItem.expense_date.substring(0, 7); e.target.reset(); document.getElementById('expDate').value = new Date().toISOString().split('T')[0]; renderDailyExpenses(); }
+        // --- HARCAMA TAKİBİ FİLTRELEME FONKSİYONLARI ---
+        function toggleExpFilterType() {
+            const type = document.getElementById("expFilterType").value;
+            if (type === "month") {
+                document.getElementById("monthFilter").classList.remove("hidden-section");
+                document.getElementById("customDateFilter").classList.add("hidden-section");
+            } else {
+                document.getElementById("monthFilter").classList.add("hidden-section");
+                document.getElementById("customDateFilter").classList.remove("hidden-section");
+            }
+            renderDailyExpenses();
+        }
+
+        function getFilteredDailyExpenses() {
+            const type = document.getElementById("expFilterType").value;
+            if (type === "month") {
+                const filterValue = document.getElementById("monthFilter").value;
+                return state.dailyExpenses.filter(exp => !filterValue || exp.date.startsWith(filterValue));
+            } else {
+                const start = document.getElementById("startDateFilter").value;
+                const end = document.getElementById("endDateFilter").value;
+                return state.dailyExpenses.filter(exp => {
+                    if (start && exp.date < start) return false;
+                    if (end && exp.date > end) return false;
+                    return true;
+                });
+            }
+        }
+
+        function renderDailyExpenses() { 
+            const list = document.getElementById("dailyExpenseList"); 
+            list.innerHTML = ""; 
+            let monthTotal = 0; 
+            
+            const filtered = getFilteredDailyExpenses();
+            
+            // Tarihe göre yeniden eskiye sıralama (kullanıcı deneyimi için)
+            filtered.sort((a, b) => new Date(b.date) - new Date(a.date));
+
+            filtered.forEach(exp => { 
+                monthTotal += exp.amount; 
+                let displayDate = exp.date.includes('-') ? exp.date.split('-').reverse().join('/') : exp.date; 
+                list.innerHTML += `<tr class="border-b hover:bg-gray-50"><td class="p-3 font-semibold text-indigo-700">${exp.source || '-'}</td><td class="p-3 text-sm text-gray-600">${displayDate}</td><td class="p-3 font-medium text-gray-800">${exp.name}</td><td class="p-3 text-red-600 font-semibold">${exp.amount.toLocaleString("tr-TR", { minimumFractionDigits: 2 })} ₺</td><td class="p-3 text-center"><button onclick="deleteDailyExpense(${exp.id})" class="text-red-400 font-bold text-xl">&times;</button></td></tr>`; 
+            }); 
+            
+            document.getElementById("monthlyExpenseTotal").innerText = monthTotal.toLocaleString("tr-TR", { minimumFractionDigits: 2 }) + " ₺"; 
+        }
+
+        async function addDailyExpense(e) { 
+            e.preventDefault(); 
+            const newItem = { id: Date.now(), source: document.getElementById("expSource").value, expense_date: document.getElementById("expDate").value, name: document.getElementById("expName").value, amount: parseFloat(document.getElementById("expAmount").value) }; 
+            await db.from('daily_expenses').insert([newItem]); 
+            state.dailyExpenses.push({ id: newItem.id, source: newItem.source, date: newItem.expense_date, name: newItem.name, amount: newItem.amount }); 
+            
+            // Yeni kayıt eklendiğinde tabloyu "Aylık" görünüme geçirip, eklenen aya odakla
+            document.getElementById("expFilterType").value = "month";
+            toggleExpFilterType();
+            document.getElementById("monthFilter").value = newItem.expense_date.substring(0, 7); 
+            
+            e.target.reset(); 
+            document.getElementById('expDate').value = new Date().toISOString().split('T')[0]; 
+            renderDailyExpenses(); 
+        }
+        
         async function deleteDailyExpense(id) { await db.from('daily_expenses').delete().eq('id', id); state.dailyExpenses = state.dailyExpenses.filter(e => e.id !== id); renderDailyExpenses(); }
 
         async function changeSavingsMonth() { currentViewMonthSavings = document.getElementById('savingsMonthFilter').value; await initializeMonthIfMissing(currentViewMonthSavings); renderSavings(); }
@@ -878,7 +951,42 @@
         const currencyFmt = '#,##0.00" ₺"';
         async function exportTablo1() { const wb = new ExcelJS.Workbook(); const ws = wb.addWorksheet('Tablo 1'); ws.columns = [{ header: 'Açıklama', key: 'name', width: 30 }, { header: 'Tutar', key: 'amount', width: 20 }]; state.monthlyData[currentViewMonthTab1].incomes.forEach(i => ws.addRow({ name: i.name, amount: i.amount || 0 })); ws.addRow([]); state.monthlyData[currentViewMonthTab1].plannedExpenses.forEach(p => ws.addRow({ name: p.name, amount: p.amount || 0 })); ws.getColumn('amount').numFmt = currencyFmt; const buffer = await wb.xlsx.writeBuffer(); saveAs(new Blob([buffer]), `Tablo1_${currentViewMonthTab1}.xlsx`); }
         async function exportTablo2() { const wb = new ExcelJS.Workbook(); const ws = wb.addWorksheet('Giderler'); ws.columns = [{ header: 'Gider Adı', key: 'name', width: 30 }, { header: 'Tutar', key: 'amount', width: 20 }, { header: 'Son Ödeme', key: 'date', width: 20 }]; const activeExpenses = state.monthlyData[currentViewMonthTab1] ? state.monthlyData[currentViewMonthTab1].expenses : []; activeExpenses.forEach(e => ws.addRow({ name: e.name, amount: e.amount || 0, date: e.date ? e.date.split('-').reverse().join('/') : '' })); ws.getColumn('amount').numFmt = currencyFmt; const buffer = await wb.xlsx.writeBuffer(); saveAs(new Blob([buffer]), `Tablo2_Aktif_Giderler.xlsx`); }
-        async function exportToExcel() { const wb = new ExcelJS.Workbook(); const ws = wb.addWorksheet('Harcamalar'); ws.columns = [{ header: 'Kaynak', key: 'src', width: 20 }, { header: 'Tarih', key: 'date', width: 15 }, { header: 'Açıklama', key: 'desc', width: 40 }, { header: 'Tutar', key: 'amount', width: 20 }]; state.dailyExpenses.forEach(exp => ws.addRow({ src: exp.source, date: exp.date, desc: exp.name, amount: exp.amount })); ws.getColumn('amount').numFmt = currencyFmt; const buffer = await wb.xlsx.writeBuffer(); saveAs(new Blob([buffer]), `Harcamalar.xlsx`); }
+        
+        async function exportToExcel() { 
+            const wb = new ExcelJS.Workbook(); 
+            const ws = wb.addWorksheet('Harcamalar'); 
+            ws.columns = [
+                { header: 'Kaynak', key: 'src', width: 20 }, 
+                { header: 'Tarih', key: 'date', width: 15 }, 
+                { header: 'Açıklama', key: 'desc', width: 40 }, 
+                { header: 'Tutar', key: 'amount', width: 20 }
+            ]; 
+            
+            const filtered = getFilteredDailyExpenses();
+            // Excel için de tarihe göre eskiden yeniye veya yeniden eskiye sıralayabilirsiniz. (Burada yeniden eskiye sıralanmıştır)
+            filtered.sort((a, b) => new Date(b.date) - new Date(a.date));
+
+            filtered.forEach(exp => {
+                let displayDate = exp.date.includes('-') ? exp.date.split('-').reverse().join('/') : exp.date; 
+                ws.addRow({ src: exp.source, date: displayDate, desc: exp.name, amount: exp.amount });
+            }); 
+            
+            ws.getColumn('amount').numFmt = currencyFmt; 
+            const buffer = await wb.xlsx.writeBuffer(); 
+            
+            // Dosya isimlendirmesi
+            let filename = 'Harcamalar.xlsx';
+            const type = document.getElementById("expFilterType").value;
+            if(type === "month") {
+                const mv = document.getElementById("monthFilter").value;
+                if(mv) filename = `Harcamalar_${mv}.xlsx`;
+            } else {
+                filename = `Harcamalar_Ozel_Aralik.xlsx`;
+            }
+
+            saveAs(new Blob([buffer]), filename); 
+        }
+        
         async function exportSavings() { const wb = new ExcelJS.Workbook(); const ws = wb.addWorksheet('Vadeli'); ws.columns = [{ header: 'Tarih', key: 'date', width: 15 }, { header: 'Brüt', key: 'gross', width: 20 }, { header: 'Vergi', key: 'tax', width: 20 }, { header: 'Net', key: 'net', width: 20 }]; const savings = state.monthlyData[currentViewMonthSavings] ? state.monthlyData[currentViewMonthSavings].savings : []; savings.forEach(s => ws.addRow({ date: s.date, gross: s.gross, tax: s.tax, net: s.net })); ['gross', 'tax', 'net'].forEach(col => ws.getColumn(col).numFmt = currencyFmt); const buffer = await wb.xlsx.writeBuffer(); saveAs(new Blob([buffer]), `VadeliHesap_${currentViewMonthSavings}.xlsx`); }
         async function exportStocks() { const wb = new ExcelJS.Workbook(); const ws = wb.addWorksheet('Hisseler'); ws.columns = [{ header: 'Hesap', key: 'acc', width: 15 }, { header: 'Hisse', key: 'stock', width: 15 }, { header: 'Adet', key: 'qty', width: 10 }, { header: 'Alış', key: 'buy', width: 15 }, { header: 'Satış', key: 'sell', width: 15 }, { header: 'Satış Tarihi', key: 'selldate', width: 15 }, { header: 'Kâr', key: 'pl', width: 20 }]; const stocks = state.monthlyData[currentViewMonthStocks] ? state.monthlyData[currentViewMonthStocks].stocks : []; stocks.forEach(s => ws.addRow({ acc: s.hesapAdi, stock: s.hisseAdi, qty: s.adet, buy: s.fiyat, sell: s.satisFiyati, selldate: s.satisTarihi, pl: (s.satisFiyati - s.fiyat)*s.adet })); ['buy', 'sell', 'pl'].forEach(col => ws.getColumn(col).numFmt = currencyFmt); const buffer = await wb.xlsx.writeBuffer(); saveAs(new Blob([buffer]), `HisseSenedi_${currentViewMonthStocks}.xlsx`); }
         async function exportCommissions() { const wb = new ExcelJS.Workbook(); const ws = wb.addWorksheet('Komisyonlar'); ws.columns = [{ header: 'Tarih', key: 'date', width: 15 }, { header: 'İşlem', key: 'name', width: 40 }, { header: 'Tutar', key: 'amount', width: 20 }]; const comms = state.monthlyData[currentViewMonthStocks] ? state.monthlyData[currentViewMonthStocks].commissions : []; comms.forEach(c => ws.addRow({ date: c.tarih, name: c.islemAdi, amount: c.tutar || 0 })); ws.getColumn('amount').numFmt = currencyFmt; const buffer = await wb.xlsx.writeBuffer(); saveAs(new Blob([buffer]), `Komisyonlar_${currentViewMonthStocks}.xlsx`); }
