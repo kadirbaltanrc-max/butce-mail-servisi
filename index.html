@@ -412,15 +412,6 @@
         const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImJjcmZmcXRsdWtscHJsZXJnbnBtIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODQ3MDY3MTUsImV4cCI6MjEwMDI4MjcxNX0.liiJahBNo__nyYvL_jfoBnnoGEi1deD-W686Ovl-Tm8";
         const db = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
-        // Tarih ve Timezone hatalarını engellemek için yerel Türkiye saati (Local Time) fonksiyonu
-        function getTodayStr() {
-            const d = new Date();
-            const year = d.getFullYear();
-            const month = String(d.getMonth() + 1).padStart(2, '0');
-            const day = String(d.getDate()).padStart(2, '0');
-            return `${year}-${month}-${day}`;
-        }
-
         function getCurrentMonthStr() { const d = new Date(); return d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, '0'); }
         function canEditMonth(mStr) {
             if (mStr >= getCurrentMonthStr()) return true;
@@ -436,7 +427,7 @@
         let isEditTab1 = false; let isEditTab2 = false; let isEditTabStocks = false;
 
         document.addEventListener("DOMContentLoaded", async () => {
-            const todayStr = getTodayStr(); // UTC yerine Local date kullanıyoruz
+            const todayStr = new Date().toISOString().split('T')[0];
             document.getElementById('monthFilter').value = getCurrentMonthStr();
             document.getElementById('expDate').value = todayStr;
             document.getElementById('savDate').value = todayStr;
@@ -653,7 +644,7 @@
 
         async function addStockRow() { const newItem = { id: Date.now(), month_key: currentViewMonthStocks, account_name: "", stock_name: "", quantity: 0, buy_price: 0, sell_price: 0, sell_date: null, first_trade_date: null, capital: 0, target_days: 0, is_sold: false }; await db.from('stocks').insert([newItem]); state.monthlyData[currentViewMonthStocks].stocks.push({ id: newItem.id, hesapAdi: "", hisseAdi: "", adet: 0, fiyat: 0, satisFiyati: 0, satisTarihi: "", ilkIslemTarihi: "", sermaye: 0, hedef: 0, isSold: false }); renderStocks(); }
         async function deleteStock(id) { await db.from('stocks').delete().eq('id', id); state.monthlyData[currentViewMonthStocks].stocks = state.monthlyData[currentViewMonthStocks].stocks.filter(s => s.id !== id); renderStocks(); updateTotals(); renderIncomes(); }
-        async function toggleSoldStock(id) { const item = state.monthlyData[currentViewMonthStocks].stocks.find(s => s.id === id); if(item) { item.isSold = !item.isSold; if(item.isSold && !item.satisTarihi) { item.satisTarihi = getTodayStr(); } await db.from('stocks').update({ is_sold: item.isSold, sell_date: item.satisTarihi || null }).eq('id', id); renderStocks(); updateTotals(); renderIncomes(); } }
+        async function toggleSoldStock(id) { const item = state.monthlyData[currentViewMonthStocks].stocks.find(s => s.id === id); if(item) { item.isSold = !item.isSold; if(item.isSold && !item.satisTarihi) { item.satisTarihi = new Date().toISOString().split('T')[0]; } await db.from('stocks').update({ is_sold: item.isSold, sell_date: item.satisTarihi || null }).eq('id', id); renderStocks(); updateTotals(); renderIncomes(); } }
 
         function renderCommissions() {
             const tbody = document.getElementById("commissionsTableBody"); tbody.innerHTML = ""; let totalCommission = 0;
@@ -840,7 +831,7 @@
             document.querySelectorAll('.tab2-action').forEach(e=>e.classList.toggle('hidden-section', !isEditTab2)); document.getElementById('btnAddAct').classList.toggle('hidden-section', !isEditTab2);
             
             const activeExpenses = state.monthlyData[currentViewMonthTab1] ? state.monthlyData[currentViewMonthTab1].expenses : [];
-            const todayStr = getTodayStr();
+            const todayStr = new Date().toISOString().split('T')[0];
             
             activeExpenses.forEach(exp => {
                 const isP = exp.isPaid === true || (exp.amount === 0 && exp.amount !== "");
@@ -865,17 +856,16 @@
         async function deleteExpense(id) { await db.from('expenses').delete().eq('id', id); state.monthlyData[currentViewMonthTab1].expenses = state.monthlyData[currentViewMonthTab1].expenses.filter(e=>e.id!==id); renderApp(); }
         async function markAsPaid(id) { const i = state.monthlyData[currentViewMonthTab1].expenses.find(e=>e.id===id); if(i){ i.isPaid = true; i.amount = 0; await db.from('expenses').update({ is_paid: true, amount: 0 }).eq('id', id); renderApp(); } }
 
-        // == UYARI SİSTEMİ DÜZELTMESİ ==
+        // == TAM OLARAK ESKİ, ÇALIŞAN UYARI SİSTEMİNE GERİ DÖNÜŞ ==
         function checkDueDates() {
-            const todayStr = getTodayStr();
+            const todayStr = new Date().toISOString().split('T')[0];
             let alerts = [];
 
             Object.values(state.monthlyData).forEach(month => {
                 if (month.expenses) {
                     month.expenses.forEach(exp => {
-                        // HATA DÜZELTMESİ: 'exp.amount > 0' şartı kaldırıldı. 
-                        // Faturayı girip tutarını boş/0 bıraksanız dahi tarihi geldiğinde uyarı verecek.
-                        if (!exp.isPaid && exp.date && exp.date <= todayStr) {
+                        // Tutar>0 koşulu ve standart tarih formatı orijinal haline döndürüldü
+                        if (!exp.isPaid && exp.amount > 0 && exp.date && exp.date <= todayStr) {
                             alerts.push(exp);
                         }
                     });
@@ -883,7 +873,7 @@
             });
 
             if (alerts.length > 0) { 
-                document.getElementById("alertList").innerHTML = alerts.map(a => `<li><span class="font-bold">${a.name}</span> - ${a.amount !== null && a.amount !== "" ? a.amount + " ₺" : "<i>Tutar Belirtilmedi</i>"}</li>`).join(""); 
+                document.getElementById("alertList").innerHTML = alerts.map(a => `<li><span class="font-bold">${a.name}</span> - ${a.amount} ₺</li>`).join(""); 
                 document.getElementById("alertModal").classList.remove("hidden-section"); 
             }
         }
@@ -926,7 +916,7 @@
             
             const filtered = getFilteredDailyExpenses();
             
-            // Tarihe göre yeniden eskiye sıralama (kullanıcı deneyimi için)
+            // Tarihe göre yeniden eskiye sıralama
             filtered.sort((a, b) => new Date(b.date) - new Date(a.date));
 
             filtered.forEach(exp => { 
@@ -944,13 +934,12 @@
             await db.from('daily_expenses').insert([newItem]); 
             state.dailyExpenses.push({ id: newItem.id, source: newItem.source, date: newItem.expense_date, name: newItem.name, amount: newItem.amount }); 
             
-            // Yeni kayıt eklendiğinde tabloyu "Aylık" görünüme geçirip, eklenen aya odakla
             document.getElementById("expFilterType").value = "month";
             toggleExpFilterType();
             document.getElementById("monthFilter").value = newItem.expense_date.substring(0, 7); 
             
             e.target.reset(); 
-            document.getElementById('expDate').value = getTodayStr(); 
+            document.getElementById('expDate').value = new Date().toISOString().split('T')[0]; 
             renderDailyExpenses(); 
         }
         
@@ -958,7 +947,7 @@
 
         async function changeSavingsMonth() { currentViewMonthSavings = document.getElementById('savingsMonthFilter').value; await initializeMonthIfMissing(currentViewMonthSavings); renderSavings(); }
         function renderSavings() { const tbody = document.getElementById("savingsTableBody"); const form = document.getElementById("savingsForm"); const badge = document.getElementById("savingsLockedBadge"); const actions = document.querySelectorAll('.sav-action'); tbody.innerHTML = ""; let tG = 0; let tT = 0; let tN = 0; const editable = canEditMonth(currentViewMonthSavings); if (!editable) { form.classList.add("hidden-section"); badge.classList.remove("hidden-section"); actions.forEach(el => el.classList.add("hidden-section")); } else { form.classList.remove("hidden-section"); badge.classList.add("hidden-section"); actions.forEach(el => el.classList.remove("hidden-section")); } const monthSavings = state.monthlyData[currentViewMonthSavings] ? state.monthlyData[currentViewMonthSavings].savings : []; monthSavings.sort((a, b) => new Date(a.date) - new Date(b.date)); monthSavings.forEach(sav => { tG += sav.gross; tT += sav.tax; tN += sav.net; let displayDate = sav.date.includes('-') ? sav.date.split('-').reverse().join('/') : sav.date; tbody.innerHTML += `<tr class="border-b hover:bg-teal-50"><td class="p-3 text-sm">${displayDate}</td><td class="p-3 text-right">${sav.gross.toLocaleString("tr-TR", { minimumFractionDigits: 2 })}</td><td class="p-3 text-right text-red-500">${sav.tax.toLocaleString("tr-TR", { minimumFractionDigits: 2 })}</td><td class="p-3 text-right text-teal-700 font-bold">${sav.net.toLocaleString("tr-TR", { minimumFractionDigits: 2 })}</td><td class="p-3 text-center sav-action ${!editable ? 'hidden-section' : ''}"><button onclick="deleteSaving(${sav.id})" class="text-red-400 font-bold text-xl">&times;</button></td></tr>`; }); document.getElementById("savTotalGross").innerText = tG.toLocaleString("tr-TR", { minimumFractionDigits: 2 }) + " ₺"; document.getElementById("savTotalTax").innerText = tT.toLocaleString("tr-TR", { minimumFractionDigits: 2 }) + " ₺"; document.getElementById("savTotalNet").innerText = tN.toLocaleString("tr-TR", { minimumFractionDigits: 2 }) + " ₺"; }
-        async function addSaving(e) { e.preventDefault(); const date = document.getElementById("savDate").value; const savMonth = date.substring(0, 7); currentViewMonthSavings = savMonth; document.getElementById('savingsMonthFilter').value = savMonth; await initializeMonthIfMissing(savMonth); if (!canEditMonth(savMonth)) { alert("Kilitli ay!"); return; } const gross = parseFloat(document.getElementById("savGross").value) || 0; const tax = parseFloat(document.getElementById("savTax").value) || 0; const newItem = { id: Date.now(), month_key: savMonth, saving_date: date, gross, tax, net: gross - tax }; await db.from('savings').insert([newItem]); state.monthlyData[savMonth].savings.push({ id: newItem.id, date: newItem.saving_date, gross: newItem.gross, tax: newItem.tax, net: newItem.net }); e.target.reset(); document.getElementById("savDate").value = getTodayStr(); renderSavings(); if (savMonth === currentViewMonthTab1) { updateTotals(); renderIncomes(); } }
+        async function addSaving(e) { e.preventDefault(); const date = document.getElementById("savDate").value; const savMonth = date.substring(0, 7); currentViewMonthSavings = savMonth; document.getElementById('savingsMonthFilter').value = savMonth; await initializeMonthIfMissing(savMonth); if (!canEditMonth(savMonth)) { alert("Kilitli ay!"); return; } const gross = parseFloat(document.getElementById("savGross").value) || 0; const tax = parseFloat(document.getElementById("savTax").value) || 0; const newItem = { id: Date.now(), month_key: savMonth, saving_date: date, gross, tax, net: gross - tax }; await db.from('savings').insert([newItem]); state.monthlyData[savMonth].savings.push({ id: newItem.id, date: newItem.saving_date, gross: newItem.gross, tax: newItem.tax, net: newItem.net }); e.target.reset(); document.getElementById("savDate").value = new Date().toISOString().split('T')[0]; renderSavings(); if (savMonth === currentViewMonthTab1) { updateTotals(); renderIncomes(); } }
         async function deleteSaving(id) { await db.from('savings').delete().eq('id', id); state.monthlyData[currentViewMonthSavings].savings = state.monthlyData[currentViewMonthSavings].savings.filter(s => s.id !== id); renderSavings(); if (currentViewMonthSavings === currentViewMonthTab1) { updateTotals(); renderIncomes(); } }
 
         const currencyFmt = '#,##0.00" ₺"';
@@ -976,7 +965,6 @@
             ]; 
             
             const filtered = getFilteredDailyExpenses();
-            // Excel için de tarihe göre eskiden yeniye veya yeniden eskiye sıralayabilirsiniz. (Burada yeniden eskiye sıralanmıştır)
             filtered.sort((a, b) => new Date(b.date) - new Date(a.date));
 
             filtered.forEach(exp => {
@@ -987,7 +975,6 @@
             ws.getColumn('amount').numFmt = currencyFmt; 
             const buffer = await wb.xlsx.writeBuffer(); 
             
-            // Dosya isimlendirmesi
             let filename = 'Harcamalar.xlsx';
             const type = document.getElementById("expFilterType").value;
             if(type === "month") {
